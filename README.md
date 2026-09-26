@@ -102,6 +102,7 @@ Le modèle, le prompt système, les délais et les limites se règlent dans **l'
 **Docker** : `docker build -t botapp . && docker run -p 3000:3000 -v botdata:/data -e DB_PATH=/data/bot.db -e AUTH_DIR=/data/auth_info -e MISTRAL_API_KEY=... botapp`
 
 **AlwaysData (SSH)** : `bash alwaysdata-setup.sh` (installe les deps, crée `.env` + `start.sh`), puis créez un site *Programme utilisateur* avec commande `~/botApp/start.sh`. Détails affichés par le script.
+**Déploiement auto** : chaque push sur `main` déclenche le workflow `deploy-alwaysdata` (git pull + redémarrage sur le serveur via SSH). Secrets requis : `ALWAYS_HOST`, `ALWAYS_USER`, `ALWAYS_SSH_KEY`, `ALWAYS_APP_DIR`.
 
 **Vercel (limité)** : seule l'interface/API se déploie (`SKIP_BOT=1`, SQLite dans `/tmp`). Le **bot WhatsApp ne peut pas tourner en serverless** (connexion persistante + Socket.io + pas de disque). Gardez Vercel pour la vitrine, Railway/AlwaysData pour le bot.
 
