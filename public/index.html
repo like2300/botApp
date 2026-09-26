@@ -137,6 +137,11 @@
                             <i data-lucide="bot" class="w-3.5 h-3.5"></i>
                             Assistants
                         </a>
+                        <button
+                            id="pauseBtn"
+                            onclick="togglePause()"
+                            class="hidden items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 transition-all"
+                        ></button>
                         <a
                             href="#"
                             onclick="
@@ -820,14 +825,44 @@
                     me.user.role === "admin" ? "flex" : "none";
 
                 $("activeAsst").innerHTML = me.active
-                    ? `${icon("play", "w-3.5 h-3.5 text-emerald-600")} Actif : ${me.active.name} (${me.active.model}) — de ${me.active.owner_login}`
+                    ? `${icon(me.active.is_paused ? "pause" : "play", "w-3.5 h-3.5 " + (me.active.is_paused ? "text-amber-500" : "text-emerald-600"))} Actif : ${me.active.name} (${me.active.model}) — de ${me.active.owner_login}${me.active.is_paused ? " ⏸ EN PAUSE" : ""}`
                     : `${icon("alert-triangle", "w-3.5 h-3.5 text-amber-500")} Aucun assistant actif (config globale).`;
 
                 $("activeAsst").classList.remove("hidden");
                 $("activeAsst").classList.add("flex");
+                renderPauseBtn(me.active);
                 refreshIcons();
             }
             loadMe();
+
+            // Bouton Pause / Reprendre l'agent actif depuis le tableau de bord
+            function renderPauseBtn(active) {
+                const b = $("pauseBtn");
+                if (!active || !activeAsstId) {
+                    b.className = "hidden";
+                    return;
+                }
+                const paused = !!active.is_paused;
+                b.innerHTML = paused
+                    ? `${icon("play", "w-3.5 h-3.5")} Reprendre`
+                    : `${icon("pause", "w-3.5 h-3.5")} Pause`;
+                b.className = paused
+                    ? "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 transition-all"
+                    : "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 transition-all";
+                b.dataset.paused = paused ? "1" : "";
+                refreshIcons();
+            }
+
+            async function togglePause() {
+                if (!activeAsstId) return alert("Aucun assistant actif.");
+                const paused = !$("pauseBtn").dataset.paused;
+                await fetch("/api/assistants/" + activeAsstId + "/pause", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", ...authH() },
+                    body: JSON.stringify({ paused }),
+                });
+                loadMe();
+            }
 
             async function refreshActive() {
                 try {
@@ -835,8 +870,10 @@
                         headers: authH(),
                     }).then((r) => r.json());
                     if (a.active) {
+                        if (a.active.id !== activeAsstId) activeAsstId = a.active.id;
                         $("activeAsst").innerHTML =
-                            `${icon("play", "w-3.5 h-3.5 text-emerald-600")} Actif : ${a.active.name} (${a.active.model}) — de ${a.active.owner_login}`;
+                            `${icon(a.active.is_paused ? "pause" : "play", "w-3.5 h-3.5 " + (a.active.is_paused ? "text-amber-500" : "text-emerald-600"))} Actif : ${a.active.name} (${a.active.model}) — de ${a.active.owner_login}${a.active.is_paused ? " ⏸ EN PAUSE" : ""}`;
+                        renderPauseBtn(a.active);
                         refreshIcons();
                     }
                 } catch (e) {}
