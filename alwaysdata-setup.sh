@@ -77,9 +77,9 @@ touch "$APP_DIR/bot.db" 2>/dev/null || true
 echo "==> 4/ Fichier .env (cree uniquement s'il n'existe pas)"
 if [ ! -f "$APP_DIR/.env" ]; then
   cat > "$APP_DIR/.env" <<'EOF'
-# Port injecte par AlwaysData (variable $PORT fournie par la plateforme).
-# Laissez vide ici : c'est start.sh / le panel qui le fournit.
-PORT=3000
+# Port : NE JAMAIS le fixer ici, AlwaysData l'injecte via $PORT.
+# (server.js utilise 3000 par defaut quand $PORT est absent, ex. en local)
+# PORT=3000
 # Cle Mistral (OBLIGATOIRE) : collez votre cle ci-dessous
 MISTRAL_API_KEY=
 # Secret cookies panneau /admin (changez-moi en production !)
@@ -100,11 +100,17 @@ cat > "$APP_DIR/start.sh" <<'EOF'
 #!/bin/bash
 # Demarre le bot en chargeant les variables de .env (sans dotenv requis).
 cd "$(dirname "$0")"
+# Le $PORT injecte par AlwaysData est prioritaire : on le sauvegarde avant
+# de charger le .env (qui ne doit pas contenir PORT), puis on le restaure.
+PLATFORM_PORT="${PORT:-}"
 set -a
 # shellcheck disable=SC1091
 [ -f ./.env ] && . ./.env
 set +a
-# Le $PORT fourni par AlwaysData a priorite sur celui du .env
+if [ -n "$PLATFORM_PORT" ]; then
+  PORT="$PLATFORM_PORT"
+fi
+export PORT
 exec node server.js
 EOF
 chmod +x "$APP_DIR/start.sh"
