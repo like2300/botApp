@@ -145,8 +145,9 @@ function resolveAssistant() {
   if (!a) return { id: 0, name: 'Global', model: CONFIG.mistralModel, instructions: CONFIG.systemInstructions, useConversations: CONFIG.useConversationsApi, historyLimit: CONFIG.historyLimit, key: gk, keySource: gk ? 'globale' : 'aucune' };
   const k = a.api_key || gk;
   // Prompt vide sur l'assistant = on reprend le prompt global (jamais d'identité Mistral par défaut)
-  const instructions = (a.instructions && a.instructions.trim()) ? a.instructions : CONFIG.systemInstructions;
-  return { id: a.id, name: a.name, model: a.model, instructions, useConversations: !!a.use_conversations, historyLimit: a.history_limit || 20, owner: a.owner_login, key: k, keySource: a.api_key ? 'assistant' : (gk ? 'globale' : 'aucune') };
+  const hasOwn = !!(a.instructions && a.instructions.trim());
+  const instructions = hasOwn ? a.instructions : CONFIG.systemInstructions;
+  return { id: a.id, name: a.name, model: a.model, instructions, instructionsSource: hasOwn ? 'assistant' : 'global', useConversations: !!a.use_conversations, historyLimit: a.history_limit || 20, owner: a.owner_login, key: k, keySource: a.api_key ? 'assistant' : (gk ? 'globale' : 'aucune') };
 }
 // Version publique d'un assistant : JAMAIS la clé en clair
 function publicAssistant(a) {
@@ -259,6 +260,7 @@ async function askViaChat(jid, userMessage, A) {
 
 async function askMistral(jid, userMessage) {
   const A = resolveAssistant();
+  log(`🧠 [${A.name}] prompt "${A.instructionsSource}" (${(A.instructions || '').length} car.) + modèle ${A.model}`);
   if (A.useConversations) {
     const reply = await askViaConversations(jid, userMessage, A);
     if (reply) return reply;
