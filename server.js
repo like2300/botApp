@@ -449,8 +449,9 @@ app.post('/api/auth/register', (req, res) => {
   const r = db.createUser(login, name || login, phone, auth.hashPassword(password), role);
   const newUid = Number(r.lastInsertRowid);
   const NUC = userCfg(newUid); // reprend les défauts (globaux) pour son 1er assistant
-  // 1er assistant de l'utilisateur, reprend la config actuelle
-  const asst = db.createAssistant({ user_id: newUid, name: 'Principal', model: NUC.mistralModel, instructions: NUC.systemInstructions, use_conversations: NUC.useConversationsApi, history_limit: NUC.historyLimit, is_active: !db.getActiveAssistantForUser(newUid) });
+  // 1er assistant de l'utilisateur, instructions VIDES : il suit toujours
+  // les "Instructions IA" du compte (pas de copie figée qui diverge)
+  const asst = db.createAssistant({ user_id: newUid, name: 'Principal', model: NUC.mistralModel, instructions: '', use_conversations: NUC.useConversationsApi, history_limit: NUC.historyLimit, is_active: !db.getActiveAssistantForUser(newUid) });
   const token = auth.newToken();
   db.createSession(token, newUid, Date.now() + auth.SESSION_DAYS * 864e5);
   log(`👤 Inscription : ${login} (${role}, assistant #${asst.lastInsertRowid} créé).`);

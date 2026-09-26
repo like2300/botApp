@@ -41,7 +41,7 @@ if (u) {
   const id = Number(r.lastInsertRowid);
   db.createAssistant({
     user_id: id, name: 'Principal', model: 'mistral-medium-latest',
-    instructions: 'Tu es un assistant virtuel utile, poli et court dans tes reponses sur WhatsApp.',
+    instructions: '', // vide = suit les "Instructions IA" du compte
     use_conversations: true, history_limit: 20, api_key: '',
     is_active: !db.getActiveAssistantForUser(id),
   });
