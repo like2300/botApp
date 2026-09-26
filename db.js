@@ -101,6 +101,11 @@ if (!db.prepare("SELECT value FROM settings WHERE key='schema_v2'").get()) {
 if (!hasCol('assistants', 'api_key')) {
   db.exec(`ALTER TABLE assistants ADD COLUMN api_key TEXT NOT NULL DEFAULT ''`);
 }
+// --- Migration v5 : prompt (instructions) fige a la creation de chaque conversation Mistral.
+// Si le prompt change, la conversation repart a zero (sinon Mistral garde l'ancien).
+if (!hasCol('conversations', 'instructions')) {
+  db.exec(`ALTER TABLE conversations ADD COLUMN instructions TEXT NOT NULL DEFAULT ''`);
+}
 // --- Migration v4 : rôle admin/user. Premier compte = admin ---
 if (!hasCol('users', 'role')) {
   db.exec(`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'`);
@@ -114,9 +119,9 @@ const stmts = {
   setSetting: db.prepare(`INSERT INTO settings(key, value) VALUES(?, ?)
     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`),
   delSetting: db.prepare('DELETE FROM settings WHERE key = ?'),
-  getConv: db.prepare('SELECT conversation_id, model FROM conversations WHERE assistant_id = ? AND jid = ?'),
-  setConv: db.prepare(`INSERT INTO conversations(assistant_id, jid, conversation_id, model) VALUES(?, ?, ?, ?)
-    ON CONFLICT(assistant_id, jid) DO UPDATE SET conversation_id = excluded.conversation_id, model = excluded.model, updated_at = CURRENT_TIMESTAMP`),
+  getConv: db.prepare('SELECT conversation_id, model, instructions FROM conversations WHERE assistant_id = ? AND jid = ?'),
+  setConv: db.prepare(`INSERT INTO conversations(assistant_id, jid, conversation_id, model, instructions) VALUES(?, ?, ?, ?, ?)
+    ON CONFLICT(assistant_id, jid) DO UPDATE SET conversation_id = excluded.conversation_id, model = excluded.model, instructions = excluded.instructions, updated_at = CURRENT_TIMESTAMP`),
   delConv: db.prepare('DELETE FROM conversations WHERE assistant_id = ? AND jid = ?'),
   delConvsAid: db.prepare('DELETE FROM conversations WHERE assistant_id = ?'),
   addMsg: db.prepare('INSERT INTO messages(assistant_id, jid, role, content) VALUES(?, ?, ?, ?)'),
@@ -159,7 +164,7 @@ module.exports = {
   setSetting: (k, v) => stmts.setSetting.run(k, String(v)),
   delSetting: (k) => stmts.delSetting.run(k),
   getConv: (aid, jid) => stmts.getConv.get(aid, jid) || null,
-  setConv: (aid, jid, convId, model) => stmts.setConv.run(aid, jid, convId, model),
+  setConv: (aid, jid, convId, model, instructions) => stmts.setConv.run(aid, jid, convId, model, instructions || ''),
   resetConv: (aid, jid) => { stmts.delConv.run(aid, jid); },
   resetAssistantConvs: (aid) => stmts.delConvsAid.run(aid).changes,
   resetAllConvs: () => stmts.resetAllConvs.run().changes,

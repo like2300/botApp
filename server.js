@@ -144,7 +144,9 @@ function resolveAssistant() {
   const a = db.getActiveAssistant();
   if (!a) return { id: 0, name: 'Global', model: CONFIG.mistralModel, instructions: CONFIG.systemInstructions, useConversations: CONFIG.useConversationsApi, historyLimit: CONFIG.historyLimit, key: gk, keySource: gk ? 'globale' : 'aucune' };
   const k = a.api_key || gk;
-  return { id: a.id, name: a.name, model: a.model, instructions: a.instructions, useConversations: !!a.use_conversations, historyLimit: a.history_limit || 20, owner: a.owner_login, key: k, keySource: a.api_key ? 'assistant' : (gk ? 'globale' : 'aucune') };
+  // Prompt vide sur l'assistant = on reprend le prompt global (jamais d'identité Mistral par défaut)
+  const instructions = (a.instructions && a.instructions.trim()) ? a.instructions : CONFIG.systemInstructions;
+  return { id: a.id, name: a.name, model: a.model, instructions, useConversations: !!a.use_conversations, historyLimit: a.history_limit || 20, owner: a.owner_login, key: k, keySource: a.api_key ? 'assistant' : (gk ? 'globale' : 'aucune') };
 }
 // Version publique d'un assistant : JAMAIS la clé en clair
 function publicAssistant(a) {
@@ -159,8 +161,12 @@ async function askViaConversations(jid, userMessage, A) {
   const instructions = (A.instructions || '') + FORMAT_SUFFIX;
   let conv = db.getConv(A.id, jid);
 
-  // Changer de modele = nouvelle conversation (un conversation_id est lie a son modele)
-  if (conv && conv.model !== model) { db.resetConv(A.id, jid); conv = null; }
+  // Nouveau modele OU nouveau prompt = nouvelle conversation
+  // (un conversation_id Mistral garde le modele ET les instructions de sa creation)
+  if (conv && (conv.model !== model || (conv.instructions || '') !== instructions)) {
+    log(`🧹 [${A.name}] Prompt/modèle changé pour ${jid}, nouvelle conversation...`);
+    db.resetConv(A.id, jid); conv = null;
+  }
 
   // 1) Suite de conversation existante
   if (conv) {
@@ -172,7 +178,7 @@ async function askViaConversations(jid, userMessage, A) {
       const newId = r.data.conversation_id || conv.conversation_id;
       if (reply) {
         const clean = toWhatsApp(reply);
-        db.setConv(A.id, jid, newId, model);
+        db.setConv(A.id, jid, newId, model, instructions);
         db.addMsg(A.id, jid, 'user', userMessage);
         db.addMsg(A.id, jid, 'assistant', clean);
         return clean;
@@ -201,7 +207,7 @@ async function askViaConversations(jid, userMessage, A) {
     const reply = extractConvReply(r.data);
     if (reply && r.data.conversation_id) {
       const clean = toWhatsApp(reply);
-      db.setConv(A.id, jid, r.data.conversation_id, model);
+      db.setConv(A.id, jid, r.data.conversation_id, model, instructions);
       db.addMsg(A.id, jid, 'user', userMessage);
       db.addMsg(A.id, jid, 'assistant', clean);
       log(`💬 [${A.name}] Nouvelle conversation ${r.data.conversation_id} (${model})`);
