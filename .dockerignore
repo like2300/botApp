@@ -1,0 +1,10 @@
+node_modules/
+auth_info/
+bot.db*
+config.json
+.env
+*.log
+.pm2/
+test-*.js
+test-*.mjs
+.git/

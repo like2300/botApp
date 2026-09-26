@@ -1,0 +1,946 @@
+<!doctype html>
+<html lang="fr">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>WhatsApp Bot + Mistral AI</title>
+        <script src="/socket.io/socket.io.js"></script>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+        <script>
+            tailwind.config = {
+                theme: {
+                    extend: {
+                        fontFamily: {
+                            sans: [
+                                "Inter",
+                                "system-ui",
+                                "-apple-system",
+                                "sans-serif",
+                            ],
+                            mono: ["JetBrains Mono", "Fira Code", "monospace"],
+                        },
+                        colors: {
+                            brand: {
+                                50: "#eef2ff",
+                                100: "#e0e7ff",
+                                500: "#6366f1",
+                                600: "#4f46e5",
+                                700: "#4338ca",
+                            },
+                        },
+                        animation: { "fade-in": "fadeIn 0.3s ease-out" },
+                        keyframes: {
+                            fadeIn: {
+                                "0%": {
+                                    opacity: "0",
+                                    transform: "translateY(-5px)",
+                                },
+                                "100%": {
+                                    opacity: "1",
+                                    transform: "translateY(0)",
+                                },
+                            },
+                        },
+                    },
+                },
+            };
+        </script>
+        <link
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+            rel="stylesheet"
+        />
+        <style>
+            ::-webkit-scrollbar {
+                width: 6px;
+                height: 6px;
+            }
+            ::-webkit-scrollbar-track {
+                background: transparent;
+            }
+            ::-webkit-scrollbar-thumb {
+                background: #cbd5e1;
+                border-radius: 3px;
+            }
+            ::-webkit-scrollbar-thumb:hover {
+                background: #94a3b8;
+            }
+            .focus-ring:focus {
+                outline: none;
+                border-color: #6366f1;
+                box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+            }
+        </style>
+    </head>
+    <body
+        class="bg-slate-50 text-slate-800 font-sans antialiased min-h-screen selection:bg-brand-100 selection:text-brand-700"
+    >
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+            <!-- Header -->
+            <header
+                class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4 transition-all duration-300"
+            >
+                <div class="flex items-center gap-4">
+                    <div
+                        class="w-12 h-12 bg-brand-50 rounded-xl flex items-center justify-center text-2xl shadow-inner border border-brand-100"
+                    >
+                        <i data-lucide="bot" class="w-6 h-6 text-brand-600"></i>
+                    </div>
+                    <div>
+                        <h1
+                            class="text-xl font-bold text-slate-900 tracking-tight"
+                        >
+                            WhatsApp Bot
+                            <span class="text-brand-600">+</span> Mistral AI
+                        </h1>
+                        <div class="flex items-center gap-2 mt-1.5">
+                            <span
+                                id="status"
+                                class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-600 border border-rose-100"
+                            >
+                                <span
+                                    class="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"
+                                ></span>
+                                Déconnecté
+                            </span>
+                            <span
+                                id="keyBadge"
+                                class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200"
+                            >
+                                <i data-lucide="key" class="w-3.5 h-3.5"></i>
+                                Clé ?
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <div
+                    class="flex flex-col sm:flex-row items-start sm:items-center gap-3 lg:gap-4"
+                >
+                    <div
+                        id="activeAsst"
+                        class="hidden lg:flex items-center gap-2 text-xs font-medium text-slate-600 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200"
+                    >
+                        Chargement...
+                    </div>
+                    <nav class="flex items-center gap-2 w-full sm:w-auto">
+                        <span
+                            id="userBadge"
+                            class="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-brand-50 text-brand-700 border border-brand-100"
+                        >
+                            <i data-lucide="user" class="w-3.5 h-3.5"></i> ...
+                        </span>
+                        <a
+                            href="assistants.html"
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all"
+                        >
+                            <i data-lucide="bot" class="w-3.5 h-3.5"></i>
+                            Assistants
+                        </a>
+                        <a
+                            href="#"
+                            onclick="
+                                logoutUser();
+                                return false;
+                            "
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-600 bg-white border border-rose-100 hover:bg-rose-50 hover:border-rose-200 transition-all"
+                        >
+                            <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
+                            Sortie
+                        </a>
+                    </nav>
+                </div>
+            </header>
+
+            <!-- Main Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Card 1: WhatsApp Connection -->
+                <div
+                    class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-6 hover:shadow-md transition-shadow duration-300"
+                >
+                    <div
+                        class="flex items-center gap-2 pb-3 border-b border-slate-100"
+                    >
+                        <i
+                            data-lucide="smartphone"
+                            class="w-5 h-5 text-slate-500"
+                        ></i>
+                        <h2 class="text-base font-semibold text-slate-900">
+                            Connexion WhatsApp
+                        </h2>
+                    </div>
+
+                    <div
+                        id="qrBox"
+                        class="bg-slate-50 rounded-xl border-2 border-dashed border-slate-200 min-h-[240px] flex flex-col items-center justify-center gap-3 text-slate-500 transition-all"
+                    >
+                        <p class="text-sm font-medium">
+                            En attente du QR code...
+                        </p>
+                    </div>
+
+                    <button
+                        onclick="logout()"
+                        class="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-rose-600 bg-rose-50 border border-rose-100 hover:bg-rose-100 hover:border-rose-200 transition-all active:scale-[0.98]"
+                    >
+                        <i data-lucide="log-out" class="w-4 h-4"></i>
+                        Déconnecter / Changer de numéro
+                    </button>
+
+                    <p
+                        class="text-xs text-slate-500 leading-relaxed bg-slate-50 p-3 rounded-lg border border-slate-100 flex items-start gap-2"
+                    >
+                        <i
+                            data-lucide="lightbulb"
+                            class="w-4 h-4 shrink-0 mt-0.5"
+                        ></i>
+                        <span
+                            ><span class="font-semibold text-slate-700"
+                                >Astuce :</span
+                            >
+                            WhatsApp → Appareils liés → Lier un appareil →
+                            scannez le QR affiché ici.</span
+                        >
+                    </p>
+
+                    <div class="pt-4 border-t border-slate-100">
+                        <h3
+                            class="text-sm font-semibold text-slate-900 mb-3 flex items-center gap-2"
+                        >
+                            <i data-lucide="bar-chart-3" class="w-4 h-4"></i>
+                            File anti-blocage
+                        </h3>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div
+                                class="bg-emerald-50 border border-emerald-100 rounded-xl p-4 text-center"
+                            >
+                                <span
+                                    id="queue"
+                                    class="block text-2xl font-bold text-emerald-600"
+                                    >0</span
+                                >
+                                <span
+                                    class="text-xs font-medium text-emerald-700/70"
+                                    >en attente</span
+                                >
+                            </div>
+                            <div
+                                class="bg-blue-50 border border-blue-100 rounded-xl p-4 text-center"
+                            >
+                                <span
+                                    id="sent"
+                                    class="block text-2xl font-bold text-blue-600"
+                                    >0</span
+                                >
+                                <span
+                                    class="text-xs font-medium text-blue-700/70"
+                                    >envoyés/min</span
+                                >
+                            </div>
+                        </div>
+                        <div
+                            id="liveMsgs"
+                            class="mt-3 space-y-2 max-h-[120px] overflow-y-auto"
+                        ></div>
+                    </div>
+                </div>
+
+                <!-- Card 2: Configuration -->
+                <div
+                    class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-5 hover:shadow-md transition-shadow duration-300"
+                >
+                    <div
+                        class="flex items-center gap-2 pb-3 border-b border-slate-100"
+                    >
+                        <i
+                            data-lucide="settings"
+                            class="w-5 h-5 text-slate-500"
+                        ></i>
+                        <h2 class="text-base font-semibold text-slate-900">
+                            Clé & Modèle
+                        </h2>
+                    </div>
+
+                    <div
+                        id="keyStatus"
+                        class="text-xs text-slate-500 bg-slate-50 p-3 rounded-lg border border-slate-100"
+                    >
+                        Vérification...
+                    </div>
+
+                    <div class="space-y-4">
+                        <div>
+                            <label
+                                class="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1.5"
+                            >
+                                <i data-lucide="key" class="w-3.5 h-3.5"></i>
+                                Clé API Mistral
+                            </label>
+                            <input
+                                id="mistralApiKey"
+                                type="password"
+                                placeholder="Collez votre clé ici"
+                                class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus-ring transition-all placeholder:text-slate-400"
+                            />
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label
+                                    class="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1.5"
+                                >
+                                    <i
+                                        data-lucide="bot"
+                                        class="w-3.5 h-3.5"
+                                    ></i>
+                                    Modèle
+                                </label>
+                                <select
+                                    id="mistralModel"
+                                    class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus-ring transition-all"
+                                >
+                                    <option value="mistral-medium-latest">
+                                        mistral-medium-latest (Conversations ✅)
+                                    </option>
+                                    <option value="mistral-tiny">
+                                        mistral-tiny (secours)
+                                    </option>
+                                    <option value="open-mistral-7b">
+                                        open-mistral-7b
+                                    </option>
+                                    <option value="ministral-3b-latest">
+                                        ministral-3b-latest
+                                    </option>
+                                    <option value="mistral-small-latest">
+                                        mistral-small-latest (souvent 429)
+                                    </option>
+                                </select>
+                            </div>
+                            <div>
+                                <label
+                                    class="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1.5"
+                                >
+                                    <i
+                                        data-lucide="library"
+                                        class="w-3.5 h-3.5"
+                                    ></i>
+                                    Historique local
+                                </label>
+                                <input
+                                    id="historyLimit"
+                                    type="number"
+                                    min="2"
+                                    max="100"
+                                    value="20"
+                                    class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus-ring transition-all"
+                                />
+                            </div>
+                        </div>
+
+                        <label
+                            id="convToggleWrap"
+                            class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors"
+                            style="display: none"
+                        >
+                            <input
+                                id="useConversationsApi"
+                                type="checkbox"
+                                checked
+                                class="w-4 h-4 text-brand-600 border-slate-300 rounded focus:ring-brand-500/20"
+                            />
+                            <span class="text-sm font-medium text-slate-700"
+                                >API Conversations (admin)</span
+                            >
+                        </label>
+
+                        <div class="flex gap-3 pt-2">
+                            <button
+                                onclick="testMistral()"
+                                class="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 shadow-sm shadow-brand-200 transition-all active:scale-[0.98]"
+                            >
+                                <i
+                                    data-lucide="flask-conical"
+                                    class="w-4 h-4"
+                                ></i>
+                                Tester la clé
+                            </button>
+                            <button
+                                onclick="deleteKey()"
+                                class="px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-[0.98]"
+                                title="Supprimer la clé"
+                            >
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                        <div
+                            id="testResult"
+                            class="hidden text-xs font-medium p-3 rounded-lg border"
+                        ></div>
+                    </div>
+
+                    <div class="pt-4 border-t border-slate-100 space-y-4">
+                        <div>
+                            <label
+                                class="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1.5"
+                            >
+                                <i data-lucide="phone" class="w-3.5 h-3.5"></i>
+                                Votre numéro
+                            </label>
+                            <input
+                                id="phoneNumber"
+                                placeholder="243..."
+                                class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus-ring transition-all placeholder:text-slate-400"
+                            />
+                        </div>
+                        <div>
+                            <label
+                                class="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1.5"
+                            >
+                                <i data-lucide="brain" class="w-3.5 h-3.5"></i>
+                                Instructions IA
+                            </label>
+                            <textarea
+                                id="systemInstructions"
+                                rows="3"
+                                class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus-ring transition-all resize-none"
+                            ></textarea>
+                        </div>
+                    </div>
+
+                    <div class="pt-4 border-t border-slate-100 space-y-4">
+                        <h3
+                            class="text-sm font-semibold text-slate-900 flex items-center gap-2"
+                        >
+                            <i data-lucide="shield-check" class="w-4 h-4"></i>
+                            Protection anti-blocage
+                        </h3>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label
+                                    class="block text-xs font-medium text-slate-600 mb-1"
+                                    >Délai min (sec)</label
+                                >
+                                <input
+                                    id="minDelaySec"
+                                    type="number"
+                                    min="2"
+                                    value="4"
+                                    class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus-ring transition-all"
+                                />
+                            </div>
+                            <div>
+                                <label
+                                    class="block text-xs font-medium text-slate-600 mb-1"
+                                    >Délai max (sec)</label
+                                >
+                                <input
+                                    id="maxDelaySec"
+                                    type="number"
+                                    min="3"
+                                    value="9"
+                                    class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus-ring transition-all"
+                                />
+                            </div>
+                            <div>
+                                <label
+                                    class="block text-xs font-medium text-slate-600 mb-1"
+                                    >Max / minute</label
+                                >
+                                <input
+                                    id="maxPerMinute"
+                                    type="number"
+                                    min="1"
+                                    max="20"
+                                    value="8"
+                                    class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus-ring transition-all"
+                                />
+                            </div>
+                            <div>
+                                <label
+                                    class="block text-xs font-medium text-slate-600 mb-1"
+                                    >Pause / contact (sec)</label
+                                >
+                                <input
+                                    id="cooldownPerUserSec"
+                                    type="number"
+                                    min="5"
+                                    value="10"
+                                    class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus-ring transition-all"
+                                />
+                            </div>
+                        </div>
+                        <label
+                            class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors"
+                        >
+                            <input
+                                id="ignoreGroups"
+                                type="checkbox"
+                                checked
+                                class="w-4 h-4 text-brand-600 border-slate-300 rounded focus:ring-brand-500/20"
+                            />
+                            <span class="text-sm font-medium text-slate-700"
+                                >Ignorer les groupes</span
+                            >
+                        </label>
+
+                        <button
+                            onclick="save()"
+                            class="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 shadow-sm shadow-slate-200 transition-all active:scale-[0.98] mt-2"
+                        >
+                            <i data-lucide="save" class="w-4 h-4"></i>
+                            Enregistrer la configuration
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Secondary Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Card 3: Discussions -->
+                <div
+                    class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 lg:col-span-1 hover:shadow-md transition-shadow duration-300 flex flex-col"
+                >
+                    <div
+                        class="flex items-center gap-2 pb-3 border-b border-slate-100 mb-4"
+                    >
+                        <i
+                            data-lucide="message-circle"
+                            class="w-5 h-5 text-slate-500"
+                        ></i>
+                        <h2 class="text-base font-semibold text-slate-900">
+                            Discussions
+                        </h2>
+                    </div>
+                    <div
+                        id="contacts"
+                        class="flex-1 overflow-y-auto max-h-[400px] space-y-2 pr-1"
+                    >
+                        <p
+                            class="text-sm text-slate-500 text-center py-8 bg-slate-50 rounded-xl border border-dashed border-slate-200"
+                        >
+                            Aucune discussion pour l'instant.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Card 4: History -->
+                <div
+                    class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 lg:col-span-2 hover:shadow-md transition-shadow duration-300 flex flex-col"
+                >
+                    <div
+                        class="flex items-center justify-between pb-3 border-b border-slate-100 mb-4"
+                    >
+                        <div class="flex items-center gap-2">
+                            <i
+                                data-lucide="book-open"
+                                class="w-5 h-5 text-slate-500"
+                            ></i>
+                            <h2
+                                id="histTitle"
+                                class="text-base font-semibold text-slate-900"
+                            >
+                                Historique
+                            </h2>
+                        </div>
+                        <span
+                            id="histMeta"
+                            class="hidden sm:inline text-xs text-slate-500 font-medium bg-slate-50 px-2 py-1 rounded-md border border-slate-100"
+                        ></span>
+                    </div>
+
+                    <div
+                        id="history"
+                        class="flex-1 overflow-y-auto max-h-[400px] space-y-3 pr-2 mb-4"
+                    >
+                        <!-- Messages injectés ici -->
+                    </div>
+
+                    <div class="flex gap-3 pt-4 border-t border-slate-100">
+                        <button
+                            onclick="resetConv(false)"
+                            class="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-[0.98]"
+                        >
+                            <i data-lucide="broom" class="w-4 h-4"></i> Nouveau
+                            sujet
+                        </button>
+                        <button
+                            onclick="resetConv(true)"
+                            class="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-rose-600 bg-rose-50 border border-rose-100 hover:bg-rose-100 hover:border-rose-200 transition-all active:scale-[0.98]"
+                        >
+                            <i data-lucide="trash-2" class="w-4 h-4"></i> Tout
+                            effacer
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card 5: Live Logs -->
+            <div
+                class="bg-slate-900 rounded-2xl shadow-lg border border-slate-800 p-6 hover:shadow-xl transition-shadow duration-300"
+            >
+                <div
+                    class="flex items-center gap-2 pb-3 border-b border-slate-800 mb-4"
+                >
+                    <i
+                        data-lucide="scroll-text"
+                        class="w-5 h-5 text-slate-400"
+                    ></i>
+                    <h2 class="text-base font-semibold text-slate-100">
+                        Journal en direct
+                    </h2>
+                    <span class="ml-auto flex h-2 w-2 relative">
+                        <span
+                            class="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-emerald-400 opacity-75"
+                        ></span>
+                        <span
+                            class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"
+                        ></span>
+                    </span>
+                </div>
+                <div
+                    id="logs"
+                    class="font-mono text-xs text-emerald-400 h-48 overflow-y-auto space-y-1"
+                >
+                    <!-- Logs injectés ici -->
+                </div>
+            </div>
+        </div>
+
+        <script>
+            const socket = io();
+            const $ = (id) => document.getElementById(id);
+            let currentJid = null;
+
+            // Fonction utilitaire propre pour générer les icônes
+            function icon(name, className = "w-4 h-4 inline align-middle") {
+                return `<i data-lucide="${name}" class="${className}"></i>`;
+            }
+
+            // Fonction pour rafraîchir les icônes après une modification du DOM
+            function refreshIcons() {
+                if (window.lucide) {
+                    lucide.createIcons();
+                }
+            }
+
+            // Appel initial une fois le DOM chargé
+            document.addEventListener("DOMContentLoaded", refreshIcons);
+
+            async function loadConfig() {
+                const c = await fetch("/api/config").then((r) => r.json());
+                $("systemInstructions").value = c.systemInstructions || "";
+                $("phoneNumber").value = c.phoneNumber || "";
+                $("mistralModel").value =
+                    c.mistralModel || "mistral-medium-latest";
+                $("useConversationsApi").checked =
+                    c.useConversationsApi !== false;
+                $("historyLimit").value = c.historyLimit || 20;
+                $("minDelaySec").value = c.minDelaySec || 4;
+                $("maxDelaySec").value = c.maxDelaySec || 9;
+                $("maxPerMinute").value = c.maxPerMinute || 8;
+                $("cooldownPerUserSec").value = c.cooldownPerUserSec || 10;
+                $("ignoreGroups").checked = c.ignoreGroups !== false;
+
+                const kb = $("keyBadge");
+                if (c.keyConfigured) {
+                    kb.innerHTML = `${icon("key", "w-3.5 h-3.5")} Clé OK (${c.mistralApiKey})${c.envKey ? " [ENV]" : " [SQLite]"}`;
+                    kb.className =
+                        "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-600 border border-emerald-100";
+                } else {
+                    kb.innerHTML = `${icon("key", "w-3.5 h-3.5")} Clé manquante`;
+                    kb.className =
+                        "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-600 border border-rose-100";
+                }
+
+                $("keyStatus").innerHTML = c.keyConfigured
+                    ? `<span class="text-emerald-600 font-semibold">${icon("check-circle", "w-3.5 h-3.5 text-emerald-600")} Clé configurée ${c.mistralApiKey} (${c.envKey ? "ENV" : "SQLite"}, jamais exposée).</span> Laissez vide pour garder.`
+                    : `<span class="text-rose-600 font-semibold">${icon("x-circle", "w-3.5 h-3.5 text-rose-600")} Aucune clé. Collez-la puis Enregistrer.</span>`;
+
+                $("mistralApiKey").placeholder = c.keyConfigured
+                    ? "Clé enregistrée — vide = garder"
+                    : "Collez votre clé Mistral ici";
+                refreshIcons();
+            }
+            loadConfig();
+
+            async function save() {
+                const body = {
+                    mistralModel: $("mistralModel").value,
+                    useConversationsApi: $("useConversationsApi").checked,
+                    historyLimit: $("historyLimit").value,
+                    systemInstructions: $("systemInstructions").value,
+                    phoneNumber: $("phoneNumber").value,
+                    minDelaySec: $("minDelaySec").value,
+                    maxDelaySec: $("maxDelaySec").value,
+                    maxPerMinute: $("maxPerMinute").value,
+                    cooldownPerUserSec: $("cooldownPerUserSec").value,
+                    ignoreGroups: $("ignoreGroups").checked,
+                };
+                if ($("mistralApiKey").value)
+                    body.mistralApiKey = $("mistralApiKey").value;
+
+                const r = await fetch("/api/config", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body),
+                }).then((r) => r.json());
+
+                alert(r.ok ? "Enregistré !" : "Erreur");
+                $("mistralApiKey").value = "";
+                loadConfig();
+            }
+
+            async function deleteKey() {
+                if (!confirm("Supprimer la clé de SQLite ?")) return;
+                await fetch("/api/key", { method: "DELETE" });
+                loadConfig();
+            }
+
+            async function testMistral() {
+                const tr = $("testResult");
+                tr.classList.remove("hidden");
+                tr.innerHTML = `${icon("clock", "w-4 h-4")} Test en cours...`;
+                tr.className =
+                    "text-xs font-medium p-3 rounded-lg bg-blue-50 text-blue-700 border border-blue-100 block";
+
+                const r = await fetch("/api/test-mistral").then((r) =>
+                    r.json(),
+                );
+                if (r.ok) {
+                    tr.className =
+                        "text-xs font-medium p-3 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 block";
+                    tr.innerHTML = `${icon("check-circle", "w-4 h-4 text-emerald-600")} OK [${r.mode} / ${r.model} / ${r.keySource} / ${r.assistant}] : ${r.reply}`;
+                } else {
+                    tr.className =
+                        "text-xs font-medium p-3 rounded-lg bg-rose-50 text-rose-700 border border-rose-100 block";
+                    tr.innerHTML = `${icon("x-circle", "w-4 h-4 text-rose-600")} Échec (${r.model || ""}). Voir logs.`;
+                }
+            }
+
+            async function logout() {
+                if (confirm("Changer de numéro WhatsApp ?")) {
+                    await fetch("/api/logout", { method: "POST" });
+                    location.reload();
+                }
+            }
+
+            async function logoutUser() {
+                const t = localStorage.getItem("bot_token");
+                if (t) {
+                    await fetch("/api/auth/logout", {
+                        method: "POST",
+                        headers: { Authorization: "Bearer " + t },
+                    }).catch(() => {});
+                }
+                localStorage.removeItem("bot_token");
+                localStorage.removeItem("bot_user");
+                location.replace("login.html");
+            }
+
+            async function loadMe() {
+                const t = localStorage.getItem("bot_token");
+                if (!t) return location.replace("login.html");
+
+                const me = await fetch("/api/auth/me", {
+                    headers: { Authorization: "Bearer " + t },
+                })
+                    .then((r) => r.json())
+                    .catch(() => ({}));
+
+                if (!me.ok) {
+                    localStorage.removeItem("bot_token");
+                    return location.replace("login.html");
+                }
+
+                $("userBadge").innerHTML =
+                    `${icon("user", "w-3.5 h-3.5")} ${me.user.name} (${me.user.login})${me.user.role === "admin" ? " [admin]" : ""}`;
+                $("convToggleWrap").style.display =
+                    me.user.role === "admin" ? "flex" : "none";
+
+                $("activeAsst").innerHTML = me.active
+                    ? `${icon("play", "w-3.5 h-3.5 text-emerald-600")} Actif : ${me.active.name} (${me.active.model}) — de ${me.active.owner_login}`
+                    : `${icon("alert-triangle", "w-3.5 h-3.5 text-amber-500")} Aucun assistant actif (config globale).`;
+
+                $("activeAsst").classList.remove("hidden");
+                $("activeAsst").classList.add("flex");
+                refreshIcons();
+            }
+            loadMe();
+
+            async function refreshActive() {
+                try {
+                    const a = await fetch("/api/assistant/active").then((r) =>
+                        r.json(),
+                    );
+                    if (a.active) {
+                        $("activeAsst").innerHTML =
+                            `${icon("play", "w-3.5 h-3.5 text-emerald-600")} Actif : ${a.active.name} (${a.active.model}) — de ${a.active.owner_login}`;
+                        refreshIcons();
+                    }
+                } catch (e) {}
+            }
+
+            async function loadContacts() {
+                const list = await fetch("/api/contacts").then((r) => r.json());
+                const container = $("contacts");
+
+                container.innerHTML = list.length
+                    ? ""
+                    : '<p class="text-sm text-slate-500 text-center py-8 bg-slate-50 rounded-xl border border-dashed border-slate-200">Aucune discussion pour l\'instant.</p>';
+
+                list.forEach((c) => {
+                    const d = document.createElement("div");
+                    d.className =
+                        "group cursor-pointer p-3 rounded-xl border border-slate-200 bg-white hover:bg-brand-50 hover:border-brand-200 transition-all duration-200";
+                    d.innerHTML = `<div class="flex items-start gap-3"><div class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-600 group-hover:bg-brand-100 group-hover:text-brand-600 transition-colors shrink-0">${c.role === "assistant" ? icon("bot", "w-4 h-4") : icon("user", "w-4 h-4")}</div><div class="flex-1 min-w-0"><div class="text-xs font-semibold text-slate-900 truncate">${c.jid}</div><div class="text-xs text-slate-500 truncate mt-0.5">${c.content || ""}</div></div></div>`;
+                    d.onclick = () => showHistory(c.jid);
+                    container.appendChild(d);
+                });
+                refreshIcons();
+            }
+
+            async function showHistory(jid) {
+                currentJid = jid;
+                const h = await fetch(
+                    "/api/history?jid=" + encodeURIComponent(jid),
+                ).then((r) => r.json());
+
+                $("histTitle").innerHTML =
+                    `${icon("book-open", "w-5 h-5 text-slate-500")} ${jid.length > 25 ? jid.substring(0, 25) + "..." : jid}`;
+                $("histMeta").textContent =
+                    "conversation_id: " +
+                    (h.conversation_id || "aucune (mode chat)") +
+                    " • modèle: " +
+                    (h.model || "-") +
+                    " • " +
+                    h.messages.length +
+                    " messages";
+
+                const historyContainer = $("history");
+                historyContainer.innerHTML = h.messages.length
+                    ? h.messages
+                          .map(
+                              (m) => `
+                        <div class="flex ${m.role === "user" ? "justify-end" : "justify-start"} animate-fade-in">
+                          <div class="max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${m.role === "user" ? "bg-brand-600 text-white rounded-br-none" : "bg-slate-100 text-slate-800 border border-slate-200 rounded-bl-none"}">
+                            <div class="text-[10px] font-semibold mb-1 opacity-70 flex items-center gap-1">
+                              ${m.role === "user" ? icon("user", "w-3.5 h-3.5") + " Vous" : icon("bot", "w-3.5 h-3.5") + " Assistant"}
+                            </div>
+                            ${m.content.replace(/\n/g, "<br>")}
+                          </div>
+                        </div>
+                      `,
+                          )
+                          .join("")
+                    : '<p class="text-sm text-slate-500 text-center py-8">Vide.</p>';
+
+                historyContainer.scrollTop = historyContainer.scrollHeight;
+                refreshIcons();
+            }
+
+            async function resetConv(clear) {
+                if (!currentJid) return alert("Choisissez d'abord un contact.");
+                await fetch("/api/conversation/reset", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        jid: currentJid,
+                        clearMessages: clear,
+                    }),
+                });
+                showHistory(currentJid);
+                loadContacts();
+            }
+
+            loadContacts();
+            setInterval(loadContacts, 15000);
+
+            socket.on("qr", (img) => {
+                const qrBox = $("qrBox");
+                if (img) {
+                    qrBox.innerHTML = `<img src="${img}" class="w-52 h-52 rounded-xl border-2 border-white shadow-lg"><p class="text-sm font-semibold text-slate-700">${icon("clock", "w-4 h-4")} Scannez avec WhatsApp</p>`;
+                    qrBox.className =
+                        "bg-white rounded-xl border border-slate-200 min-h-[240px] flex flex-col items-center justify-center gap-4 shadow-inner transition-all";
+                } else {
+                    qrBox.innerHTML = `<div class="text-4xl mb-2 text-emerald-500">${icon("check-circle", "w-10 h-10")}</div><p class="text-sm font-semibold text-emerald-600">WhatsApp connecté !</p>`;
+                    qrBox.className =
+                        "bg-emerald-50 rounded-xl border border-emerald-200 min-h-[240px] flex flex-col items-center justify-center gap-3 transition-all";
+                }
+                refreshIcons();
+            });
+
+            socket.on("status", (s) => {
+                const b = $("status");
+                if (s === "connecte") {
+                    b.innerHTML =
+                        '<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Connecté';
+                    b.className =
+                        "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-600 border border-emerald-100";
+                } else {
+                    b.innerHTML =
+                        '<span class="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></span> Déconnecté';
+                    b.className =
+                        "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-600 border border-rose-100";
+                }
+            });
+
+            async function loadStatus() {
+                try {
+                    const r = await fetch("/api/status").then((x) => x.json());
+                    const b = $("status");
+                    if (r.connected) {
+                        b.innerHTML =
+                            '<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Connecté';
+                        b.className =
+                            "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-600 border border-emerald-100";
+                    } else {
+                        b.innerHTML =
+                            '<span class="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></span> Déconnecté';
+                        b.className =
+                            "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-600 border border-rose-100";
+                    }
+                } catch (e) {}
+            }
+            loadStatus();
+            socket.on("connect", () => {
+                loadStatus();
+            });
+
+            socket.on("log", addLog);
+            socket.on("log-history", (arr) => arr.forEach(addLog));
+
+            function addLog(l) {
+                const d = $("logs");
+                const entry = document.createElement("div");
+                entry.className =
+                    "border-l-2 border-slate-700 pl-2 py-0.5 hover:bg-slate-800/50 transition-colors";
+                entry.textContent = l;
+                d.appendChild(entry);
+                d.scrollTop = d.scrollHeight;
+            }
+
+            socket.on("stats", (s) => {
+                $("queue").textContent = s.queue;
+                $("sent").textContent = s.sent;
+            });
+
+            socket.on("message", (m) => {
+                const live = $("liveMsgs");
+                const msgDiv = document.createElement("div");
+                msgDiv.className =
+                    "text-xs bg-white border border-slate-200 rounded-lg p-2.5 shadow-sm animate-fade-in";
+                msgDiv.innerHTML = `<div class="font-semibold text-brand-600 mb-0.5">${m.from}</div><div class="text-slate-600 line-clamp-2">${m.text}</div>`;
+                live.insertBefore(msgDiv, live.firstChild);
+                if (live.children.length > 5) live.removeChild(live.lastChild);
+                loadContacts();
+            });
+
+            socket.on("history-update", (h) => {
+                loadContacts();
+                if (h.jid === currentJid) showHistory(h.jid);
+            });
+
+            socket.on("assistant", refreshActive);
+        </script>
+    </body>
+</html>

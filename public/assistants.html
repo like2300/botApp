@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mes assistants</title>
+<script src="/socket.io/socket.io.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,sans-serif}
+body{background:#f0f2f5;min-height:100vh;color:#1c1e21}
+.container{max-width:1000px;margin:0 auto;padding:16px}
+header{display:flex;align-items:center;justify-content:space-between;background:#fff;border-radius:12px;padding:14px 24px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:16px;flex-wrap:wrap;gap:10px}
+header .brand{display:flex;align-items:center;gap:8px}
+header h1{font-size:1.2rem;color:#1877f2;font-weight:700}
+header .hint{color:#606770;font-size:.8rem}
+nav{display:flex;gap:8px;align-items:center}
+nav a{color:#1877f2;text-decoration:none;font-weight:600;background:#e4e6eb;padding:6px 14px;border-radius:8px;font-size:.85rem;transition:all .2s}
+nav a:hover{background:#d8dced}
+.card{background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:16px}
+.card h2{font-size:1rem;margin-bottom:14px;color:#1c1e21;display:flex;align-items:center;gap:8px;border-bottom:2px solid #f0f2f5;padding-bottom:8px}
+label{font-size:.78rem;font-weight:600;display:block;margin:10px 0 4px;color:#606770}
+input,textarea,select{width:100%;padding:9px 12px;border:1px solid #dddfe2;border-radius:8px;font-size:.9rem;transition:border-color .2s,box-shadow .2s}
+input:focus,textarea:focus,select:focus{outline:none;border-color:#1877f2;box-shadow:0 0 0 2px rgba(24,119,242,.15)}
+textarea{resize:vertical;min-height:60px}
+select{background:#fff}
+button{cursor:pointer;border:none;border-radius:8px;padding:9px 16px;font-weight:600;font-size:.9rem;transition:all .2s}
+button:hover{transform:translateY(-1px)}
+.btn{background:#1877f2;color:#fff;width:100%;margin-top:12px;font-size:.95rem}
+.btn:hover{background:#166fe5}
+.btn-ghost{background:#e4e6eb;color:#1c1e21}
+.btn-ghost:hover{background:#d8dced}
+.btn-danger{background:#fa3e3e;color:#fff}
+.btn-danger:hover{background:#e43030}
+.btn-warn{background:#f59e0b;color:#fff}
+.btn-sm{padding:6px 12px;font-size:.8rem;width:auto}
+.asst{border:1px solid #e4e6eb;border-radius:12px;padding:16px;margin-top:12px;background:#fff;transition:all .2s}
+.asst.active{border-color:#1877f2;background:#f0f7ff;box-shadow:0 0 0 1px #1877f2}
+.asst h3{display:flex;align-items:center;gap:8px;font-size:1rem}
+.asst .meta{color:#606770;font-size:.82rem;margin:4px 0}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.hint{font-size:.75rem;color:#8a8d91;margin-top:8px;line-height:1.5}
+.status-ok{color:#15803d;font-weight:700}
+.status-ko{color:#b31212;font-weight:700}
+.switch{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:.85rem;color:#606770}
+.empty-state{text-align:center;padding:30px;color:#8a8d91}
+.empty-state .icon{font-size:2rem;margin-bottom:8px}
+.form-group{margin-bottom:4px}
+.form-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;padding-bottom:12px;border-bottom:2px solid #f0f2f5}
+.form-header h2{color:#1877f2;border:none;padding:0;margin:0}
+</style>
+</head>
+<body>
+<div class="container">
+<header>
+<div class="brand"><h1><i data-lucide='robot' class='w-5 h-5 inline align-middle'></i> Mes assistants</h1>
+<span id="who" class="hint"></span></div>
+<nav>
+<a href="index.html"><i data-lucide='arrow-left' class='w-4 h-4 inline align-middle'></i> Bot</a>
+<a href="#" onclick="logout();return false;"><i data-lucide='log-out' class='w-4 h-4 inline align-middle'></i> Sortie</a>
+</nav>
+</header>
+
+<div class="card">
+<div class="form-header"><h2><i data-lucide='plus' class='w-4 h-4 inline align-middle'></i> Nouvel assistant (max 10)</h2></div>
+<div class="form-group"><label>Nom</label><input id="n-name" placeholder="ex : SAV, Vendeur..."></div>
+<div class="form-group"><label>Modèle</label>
+<select id="n-model">
+<option value="mistral-medium-latest">mistral-medium-latest</option>
+<option value="mistral-tiny">mistral-tiny</option>
+<option value="open-mistral-7b">open-mistral-7b</option>
+<option value="ministral-3b-latest">ministral-3b-latest</option>
+</select></div>
+<div class="form-group"><label>Instructions (system prompt)</label><textarea id="n-instr" placeholder="Tu es..."></textarea></div>
+<div class="form-group"><label><i data-lucide='key' class='w-4 h-4 inline align-middle'></i> Clé API Mistral (optionnel — vide = clé globale)</label><input id="n-key" type="password" placeholder="Coller la clé ici"></div>
+<div class="switch"><input id="n-conv" type="checkbox" checked style="width:auto"> API Conversations (suivi serveur + SQLite)</div>
+<button class="btn" onclick="createAsst()">Créer</button>
+</div>
+
+<div class="card">
+<div class="form-header"><h2><i data-lucide="clipboard-list" class="w-5 h-5 inline align-middle"></i> Mes assistants</h2></div>
+<div id="list"></div>
+</div>
+</div>
+
+<script>
+const token = localStorage.getItem('bot_token');
+if (!token) location.replace('login.html');
+const H = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
+function icon(n, cl) {
+  var q = String.fromCharCode(34);
+  return '<i data-lucide=' + q + n + q + ' class=' + q + cl + q + '></i>';
+}
+function refreshIcons() {
+  try { if (window.lucide) lucide.createIcons(); } catch (e) {}
+}
+
+async function load() {
+  try {
+    const me = await fetch('/api/auth/me', { headers: H }).then(r => r.json());
+    if (!me.ok) { localStorage.removeItem('bot_token'); return location.replace('login.html'); }
+    document.getElementById('who').textContent = me.user.name + ' (' + me.user.login + ') • ' + me.assistants + ' assistant(s)' + (me.user.role === 'admin' ? ' [admin]' : '');
+    const d = await fetch('/api/assistants', { headers: H }).then(r => r.json());
+    const box = document.getElementById('list'); box.innerHTML = '';
+    if (!d || !d.assistants || !d.assistants.length) {
+      box.innerHTML = '<div class="empty-state"><div class="icon">'+icon('robot','w-5 h-5 inline align-middle')+'</div><p class="hint">Aucun assistant, créez le premier ci-dessus.</p></div>';
+      refreshIcons();
+      return;
+    }
+    d.assistants.forEach(a => {
+      const isActive = d.active && d.active.id === a.id;
+      const div = document.createElement('div');
+      div.className = 'asst' + (isActive ? ' active' : '');
+      div.innerHTML = '<h3>' + (isActive ? ''+icon('check-circle','w-4 h-4 inline text-emerald-500 align-middle')+' ' : '') + a.name + ' <small style="color:#8a8d91;font-weight:400">#'+ a.id + ' • ' + a.model + '</small></h3>'
+        + '<div class="meta">'
+        + ''+icon('key','w-4 h-4 inline align-middle')+' Clé : ' + (a.keyConfigured ? '<span class="status-ok">'+icon('check-circle','w-4 h-4 inline text-emerald-500 align-middle')+' ' + a.keyMask + '</span>' : '<span class="status-ko">'+icon('globe','w-4 h-4 inline align-middle')+' clé globale</span>') + ' • '
+        + ''+icon('message-circle','w-5 h-5 inline align-middle')+' API Conversations : ' + (a.use_conversations ? '<span class="status-ok">ON</span>' : '<span class="status-ko">OFF</span>') + '</div>'
+        + '<div style="margin-top:12px">'
+        + '<label style="margin-top:10px"><input type="checkbox" data-f="use_conversations" ' + (a.use_conversations ? 'checked' : '') + ' style="width:auto"> API Conversations (suivi serveur + SQLite)</label>'
+        + '<label>Nom</label><input data-f="name" value="' + a.name.replace(/"/g, '&quot;') + '">'
+        + '<label>Modèle</label><input data-f="model" value="' + a.model + '">'
+        + '<label>Instructions</label><textarea data-f="instructions">' + (a.instructions || '') + '</textarea>'
+        + '<label>'+icon('key','w-4 h-4 inline align-middle')+' Clé API (vide = garder, "effacer" = retour clé globale)</label><input data-f="api_key" type="password" placeholder="' + (a.keyConfigured ? 'Enregistrée ' + a.keyMask + ' — vide = garder' : 'Coller la clé') + '">'
+        + '<div class="row" style="margin-top:12px">'
+        + (!isActive ? '<button class="btn-warn btn-sm" data-act="on">'+icon('play','w-4 h-4 inline align-middle')+' Activer</button>' : '')
+        + '<button class="btn-ghost btn-sm" data-act="save">'+icon('save','w-4 h-4 inline align-middle')+' Enregistrer</button>'
+        + '<button class="btn-danger btn-sm" data-act="del">'+icon('trash-2','w-4 h-4 inline align-middle')+' Supprimer</button></div>'
+        + '<p class="hint">Modifier modèle/instructions/clé réinitialise ses conversations.</p>';
+      div.querySelector('[data-act="save"]').onclick = async () => {
+        const g = f => div.querySelector('[data-f="' + f + '"]').value;
+        const body = { name: g('name'), model: g('model'), instructions: g('instructions'), use_conversations: div.querySelector('[data-f="use_conversations"]').checked };
+        const k = g('api_key');
+        if (k) body.api_key = (k.trim().toLowerCase() === 'effacer') ? '' : k;
+        const r = await fetch('/api/assistants/' + a.id, { method: 'PUT', headers: H, body: JSON.stringify(body) }).then(r => r.json());
+        alert(r.ok ? 'Enregistré' : 'Erreur : ' + (r.error || ''));
+        load();
+      };
+      const del = div.querySelector('[data-act="del"]');
+      if (del) del.onclick = async () => { if (!confirm('Supprimer "' + a.name + '" ?')) return; await fetch('/api/assistants/' + a.id, { method: 'DELETE', headers: H }); load(); };
+      const on = div.querySelector('[data-act="on"]');
+      if (on) on.onclick = async () => { await fetch('/api/assistants/' + a.id + '/activate', { method: 'POST', headers: H }); load(); };
+      box.appendChild(div);
+    });
+    refreshIcons();
+  } catch(e) { console.error('load error:', e); }
+}
+
+async function createAsst() {
+  const body = { name: document.getElementById('n-name').value, model: document.getElementById('n-model').value, instructions: document.getElementById('n-instr').value, api_key: document.getElementById('n-key').value, use_conversations: document.getElementById('n-conv').checked };
+  const r = await fetch('/api/assistants', { method: 'POST', headers: H, body: JSON.stringify(body) }).then(r => r.json());
+  if (!r.ok) return alert('Erreur : ' + (r.error || ''));
+  document.getElementById('n-name').value = ''; document.getElementById('n-instr').value = ''; document.getElementById('n-key').value = '';
+  load();
+}
+
+async function logout() {
+  await fetch('/api/auth/logout', { method: 'POST', headers: H }).catch(() => {});
+  localStorage.removeItem('bot_token'); localStorage.removeItem('bot_user');
+  location.replace('login.html');
+}
+
+load();
+</script>
+</body>
+</html>

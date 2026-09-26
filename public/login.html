@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="fr" class="h-full bg-emerald-950">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Bot WhatsApp — Connexion</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config = { theme: { extend: { colors: { emerald: { 950: "#022c22" } }, fontFamily: { sans: ["Inter", "sans-serif"] } } } };</script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+<style>
+body { font-family: "Inter", sans-serif; -webkit-tap-highlight-color: transparent; }
+.tab-content { transition: opacity .25s ease-in-out, transform .25s ease-in-out; }
+.tab-content.hidden-tab { display: none; opacity: 0; transform: translateY(8px); }
+.tab-content.active-tab { display: block; opacity: 1; transform: translateY(0); }
+.tab-btn.active { background: #059669; color: #fff; }
+</style>
+</head>
+<body class="h-full bg-emerald-950 antialiased selection:bg-emerald-600 selection:text-white">
+<div class="fixed inset-0 pointer-events-none z-0 overflow-hidden" aria-hidden="true">
+<svg class="absolute inset-0 w-full h-full object-cover opacity-[0.92]" style="filter: blur(6px)" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 1024" preserveAspectRatio="xMidYMid slice">
+<defs><radialGradient id="vertBlur" cx="55%" cy="45%" r="65%"><stop offset="0%" stop-color="#064e3b" stop-opacity="0.75"/><stop offset="35%" stop-color="#047857" stop-opacity="0.55"/><stop offset="70%" stop-color="#022c22" stop-opacity="0.0"/></radialGradient></defs>
+<rect width="720" height="1024" fill="#d8d8d8"/><rect width="720" height="1024" fill="url(#vertBlur)"/>
+</svg>
+<div class="absolute inset-0 bg-emerald-950/35"></div><div class="absolute inset-0 bg-black/15"></div>
+</div>
+
+<main class="relative z-10 min-h-screen flex flex-col lg:grid lg:grid-cols-12 overflow-x-hidden">
+<section class="lg:col-span-7 flex flex-col items-start lg:items-end justify-center px-6 sm:px-10 lg:px-16 py-10">
+<div class="text-right w-full">
+<h1 class="font-black tracking-tight text-white text-4xl sm:text-5xl lg:text-7xl leading-none">BOT<span class="text-emerald-400">WHATSAPP</span></h1>
+<p class="mt-3 inline-block bg-white px-4 py-2 text-sm sm:text-base text-emerald-600 font-semibold tracking-wide">Assistant IA + Mistral</p>
+</div>
+</section>
+
+<section class="lg:col-span-5 flex items-end lg:items-center justify-center px-0 sm:px-6 pb-0 mt-auto lg:mt-0">
+<div class="w-full max-w-md bg-white rounded-t-[28px] lg:rounded-none shadow-2xl p-6 sm:p-8 space-y-5 min-h-[62vh] lg:min-h-0 flex flex-col justify-center">
+<div class="flex gap-2">
+<button id="tabLogin" onclick="showTab('login')" class="tab-btn active flex-1 py-2 rounded-lg text-sm font-bold bg-slate-100 text-slate-600">Connexion</button>
+<button id="tabRegister" onclick="showTab('register')" class="tab-btn flex-1 py-2 rounded-lg text-sm font-bold bg-slate-100 text-slate-600">Inscription</button>
+</div>
+
+<!-- CONNEXION -->
+<form id="formLogin" onsubmit="return doLogin(event)" class="tab-content active-tab space-y-4">
+<div><label class="block mb-1.5 text-xs font-bold uppercase tracking-wider text-slate-700">Identifiant</label>
+<div class="relative"><span class="absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-400"><i class="fa-regular fa-user"></i></span>
+<input id="li-login" required autocomplete="username" placeholder="Votre identifiant" class="pl-10 pr-3 py-3 text-sm rounded-lg bg-slate-50 border border-slate-300 w-full focus:outline-none focus:ring-2 focus:ring-emerald-600 font-medium" /></div></div>
+<div><div class="flex items-center justify-between mb-1.5"><label class="text-xs font-bold uppercase tracking-wider text-slate-700">Mot de passe</label>
+<button type="button" onclick="openForgot()" class="text-xs font-semibold text-emerald-600 hover:underline">Mot de passe oublié ?</button></div>
+<div class="relative"><span class="absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-400"><i class="fa-solid fa-lock"></i></span>
+<input id="li-pass" type="password" required autocomplete="current-password" placeholder="••••••••" class="pl-10 pr-11 py-3 text-sm rounded-lg bg-slate-50 border border-slate-300 w-full focus:outline-none focus:ring-2 focus:ring-emerald-600 font-medium" />
+<button type="button" onclick="togglePw('li-pass',this)" class="absolute inset-y-0 right-0 pr-3.5 text-slate-400"><i class="fa-regular fa-eye"></i></button></div></div>
+<label class="flex items-center cursor-pointer"><input id="li-remember" type="checkbox" class="w-4 h-4 accent-emerald-600" /><span class="ml-2.5 text-sm text-slate-700 font-medium">Se souvenir de moi</span></label>
+<button class="w-full py-3 text-sm font-bold uppercase tracking-wider text-white rounded-lg bg-emerald-600 hover:bg-emerald-700 shadow-md flex items-center justify-center gap-2"><span>Se connecter</span><i class="fa-solid fa-arrow-right"></i></button>
+</form>
+
+<!-- INSCRIPTION -->
+<form id="formRegister" onsubmit="return doRegister(event)" class="tab-content hidden-tab space-y-4">
+<div><label class="block mb-1.5 text-xs font-bold uppercase tracking-wider text-slate-700">Nom</label>
+<input id="rg-name" required placeholder="Votre nom" class="px-3.5 py-3 text-sm rounded-lg bg-slate-50 border border-slate-300 w-full focus:outline-none focus:ring-2 focus:ring-emerald-600 font-medium" /></div>
+<div><label class="block mb-1.5 text-xs font-bold uppercase tracking-wider text-slate-700">Identifiant</label>
+<input id="rg-login" required minlength="3" placeholder="ex : kelvin" class="px-3.5 py-3 text-sm rounded-lg bg-slate-50 border border-slate-300 w-full focus:outline-none focus:ring-2 focus:ring-emerald-600 font-medium" /></div>
+<div><label class="block mb-1.5 text-xs font-bold uppercase tracking-wider text-slate-700">Numéro WhatsApp (reset mot de passe)</label>
+<input id="rg-phone" required inputmode="tel" placeholder="ex : 243820000000" class="px-3.5 py-3 text-sm rounded-lg bg-slate-50 border border-slate-300 w-full focus:outline-none focus:ring-2 focus:ring-emerald-600 font-medium" />
+<p class="text-xs text-slate-500 mt-1">Le code de réinitialisation sera envoyé sur ce numéro.</p></div>
+<div><label class="block mb-1.5 text-xs font-bold uppercase tracking-wider text-slate-700">Mot de passe (6 min)</label>
+<input id="rg-pass" type="password" required minlength="6" autocomplete="new-password" placeholder="••••••••" class="px-3.5 py-3 text-sm rounded-lg bg-slate-50 border border-slate-300 w-full focus:outline-none focus:ring-2 focus:ring-emerald-600 font-medium" /></div>
+<button class="w-full py-3 text-sm font-bold uppercase tracking-wider text-white rounded-lg bg-emerald-600 hover:bg-emerald-700 shadow-md">Créer mon compte + assistant</button>
+</form>
+
+<p class="text-xs text-slate-500 text-center"><i data-lucide="lock" class="w-4 h-4 inline align-middle"></i> Mots de passe hashés (scrypt) côté serveur, jamais en clair.</p>
+</div>
+</section>
+</main>
+
+<!-- OUBLIÉ : étape 1 identifiant, étape 2 code + nouveau mot de passe -->
+<div id="forgotPanel" class="fixed inset-0 z-50 bg-emerald-950/60 backdrop-blur-sm hidden flex items-center justify-center p-4">
+<div class="w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6 space-y-4">
+<div class="flex items-start justify-between"><div><h3 class="text-lg font-extrabold text-slate-900">Mot de passe oublié</h3>
+<p class="text-sm text-slate-600 mt-1">Le code sera envoyé sur votre numéro WhatsApp enregistré.</p></div>
+<button onclick="closeForgot()" class="text-slate-400 p-1"><i class="fa-solid fa-xmark"></i></button></div>
+<div id="fgStep1" class="space-y-4">
+<input id="fg-login" placeholder="Votre identifiant" class="w-full px-3.5 py-2.5 text-sm rounded-lg bg-slate-50 border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-600" />
+<button onclick="sendCode()" class="w-full py-2.5 text-sm font-bold uppercase text-white rounded-lg bg-emerald-600 hover:bg-emerald-700">Envoyer le code WhatsApp</button>
+</div>
+<div id="fgStep2" class="space-y-4 hidden">
+<p id="fgHint" class="text-xs text-emerald-700 font-semibold"></p>
+<input id="fg-code" inputmode="numeric" maxlength="6" placeholder="Code à 6 chiffres" class="w-full px-3.5 py-2.5 text-sm rounded-lg bg-slate-50 border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-600 text-center tracking-[0.4em] font-bold" />
+<input id="fg-pass" type="password" minlength="6" placeholder="Nouveau mot de passe" class="w-full px-3.5 py-2.5 text-sm rounded-lg bg-slate-50 border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-600" />
+<button onclick="resetPass()" class="w-full py-2.5 text-sm font-bold uppercase text-white rounded-lg bg-emerald-600 hover:bg-emerald-700">Réinitialiser</button>
+</div>
+<button onclick="closeForgot()" class="w-full text-xs font-bold text-slate-600">Retour à la connexion</button>
+</div>
+</div>
+
+<div id="toast" class="hidden fixed bottom-6 right-6 z-50 bg-emerald-950 text-white px-4 py-3 rounded-xl shadow-2xl border border-emerald-800 flex items-center gap-3">
+<div id="toastIcon" class="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center"><i class="fa-solid fa-check"></i></div>
+<div><h4 id="toastTitle" class="text-xs font-bold uppercase"></h4><p id="toastMsg" class="text-xs text-emerald-100"></p></div>
+</div>
+
+<script>
+var toastTimer = null;
+function toast(title, msg, ok) {
+  document.getElementById('toastTitle').innerText = title;
+  document.getElementById('toastMsg').innerText = msg;
+  document.getElementById('toastIcon').innerHTML = ok === false ? '<i class="fa-solid fa-info"></i>' : '<i class="fa-solid fa-check"></i>';
+  document.getElementById('toast').classList.remove('hidden');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ document.getElementById('toast').classList.add('hidden'); }, 4000);
+}
+function showTab(t) {
+  var isLogin = t === 'login';
+  document.getElementById('formLogin').className = 'tab-content space-y-4 ' + (isLogin ? 'active-tab' : 'hidden-tab');
+  document.getElementById('formRegister').className = 'tab-content space-y-4 ' + (isLogin ? 'hidden-tab' : 'active-tab');
+  document.getElementById('tabLogin').classList.toggle('active', isLogin);
+  document.getElementById('tabRegister').classList.toggle('active', !isLogin);
+}
+function togglePw(id, btn) {
+  var i = document.getElementById(id);
+  i.type = i.type === 'password' ? 'text' : 'password';
+  btn.innerHTML = i.type === 'password' ? '<i class="fa-regular fa-eye"></i>' : '<i class="fa-regular fa-eye-slash"></i>';
+}
+function openForgot() { document.getElementById('forgotPanel').classList.remove('hidden'); }
+function closeForgot() { document.getElementById('forgotPanel').classList.add('hidden'); }
+async function api(url, body, token) {
+  const r = await fetch(url, { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, token ? { Authorization: 'Bearer ' + token } : {}), body: JSON.stringify(body || {}) });
+  return { status: r.status, data: await r.json().catch(() => ({})) };
+}
+async function doLogin(e) {
+  e.preventDefault();
+  const r = await api('/api/auth/login', { identifier: document.getElementById('li-login').value, password: document.getElementById('li-pass').value, remember: document.getElementById('li-remember').checked });
+  if (!r.data.ok) return toast('Connexion refusée', r.data.error || 'Erreur', false), false;
+  localStorage.setItem('bot_token', r.data.token);
+  localStorage.setItem('bot_user', JSON.stringify(r.data.user));
+  toast('Bienvenue', r.data.user.name + ' !');
+  setTimeout(() => window.location.replace('index.html'), 600);
+  return false;
+}
+async function doRegister(e) {
+  e.preventDefault();
+  const r = await api('/api/auth/register', { name: document.getElementById('rg-name').value, login: document.getElementById('rg-login').value, phone: document.getElementById('rg-phone').value, password: document.getElementById('rg-pass').value });
+  if (!r.data.ok) return toast('Inscription refusée', r.data.error || 'Erreur', false), false;
+  localStorage.setItem('bot_token', r.data.token);
+  localStorage.setItem('bot_user', JSON.stringify(r.data.user));
+  toast('Compte créé', 'Votre assistant "Principal" est prêt !');
+  setTimeout(() => window.location.replace('assistants.html'), 600);
+  return false;
+}
+async function sendCode() {
+  const login = document.getElementById('fg-login').value.trim();
+  if (!login) return toast('Champ vide', 'Saisissez votre identifiant.', false);
+  const r = await api('/api/auth/forgot', { identifier: login });
+  document.getElementById('fgStep1').classList.add('hidden');
+  document.getElementById('fgStep2').classList.remove('hidden');
+  document.getElementById('fgHint').innerText = r.data.hint ? 'Code envoyé sur le numéro ****' + r.data.hint.slice(4) + ' (valable 15 min).' : 'Si le compte existe, le code a été envoyé (valable 15 min).';
+  toast('Code envoyé', 'Vérifiez WhatsApp.');
+}
+async function resetPass() {
+  const r = await api('/api/auth/reset', { identifier: document.getElementById('fg-login').value.trim(), code: document.getElementById('fg-code').value.trim(), password: document.getElementById('fg-pass').value });
+  if (!r.data.ok) return toast('Échec', r.data.error || 'Erreur', false);
+  toast('Mot de passe réinitialisé', 'Connectez-vous.');
+  closeForgot(); showTab('login');
+}
+(function init() {
+  if (localStorage.getItem('bot_token')) window.location.replace('index.html');
+  document.getElementById('forgotPanel').addEventListener('click', function (e) { if (e.target === this) closeForgot(); });
+  try {
+    const last = localStorage.getItem('bot_remember');
+    if (last) { document.getElementById('li-login').value = last; document.getElementById('li-remember').checked = true; }
+  } catch (e) {}
+})();
+document.getElementById('li-remember').addEventListener('change', function () {
+  try { this.checked ? localStorage.setItem('bot_remember', document.getElementById('li-login').value) : localStorage.removeItem('bot_remember'); } catch (e) {}
+});
+</script>
+</body>
+</html>

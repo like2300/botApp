@@ -1,0 +1,27 @@
+{
+  "name": "whatsapp-mistral-bot",
+  "version": "2.0.0",
+  "description": "Bot WhatsApp + Mistral AI avec interface web, QR sur le web et anti-blocage",
+  "main": "server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "admin": "node create-admin.js",
+    "deploy": "deploy.bat"
+  },
+  "dependencies": {
+    "@adminjs/express": "^6.1.1",
+    "@whiskeysockets/baileys": "^6.7.0",
+    "adminjs": "^7.8.17",
+    "better-sqlite3": "^13.0.3",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "express-formidable": "^1.2.0",
+    "express-session": "^1.19.0",
+    "pino": "^10.3.1",
+    "qrcode": "^1.5.3",
+    "socket.io": "^4.7.2"
+  }
+}
