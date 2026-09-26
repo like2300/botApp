@@ -35,6 +35,12 @@ button:hover{transform:translateY(-1px)}
 .btn-sm{padding:6px 12px;font-size:.8rem;width:auto}
 .asst{border:1px solid #e4e6eb;border-radius:12px;padding:16px;margin-top:12px;background:#fff;transition:all .2s}
 .asst.active{border-color:#1877f2;background:#f0f7ff;box-shadow:0 0 0 1px #1877f2}
+.asst.paused{opacity:.8;border-style:dashed}
+.badge-pause{display:inline-block;background:#fef3c7;color:#92400e;font-size:.72rem;font-weight:700;padding:2px 10px;border-radius:999px;margin-left:6px}
+.btn-pause{background:#f59e0b;color:#fff}
+.btn-pause:hover{background:#d97706}
+.btn-play{background:#16a34a;color:#fff}
+.btn-play:hover{background:#15803d}
 .asst h3{display:flex;align-items:center;gap:8px;font-size:1rem}
 .asst .meta{color:#606770;font-size:.82rem;margin:4px 0}
 .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
@@ -108,9 +114,10 @@ async function load() {
     }
     d.assistants.forEach(a => {
       const isActive = d.active && d.active.id === a.id;
+      const paused = !!a.is_paused;
       const div = document.createElement('div');
-      div.className = 'asst' + (isActive ? ' active' : '');
-      div.innerHTML = '<h3>' + (isActive ? ''+icon('check-circle','w-4 h-4 inline text-emerald-500 align-middle')+' ' : '') + a.name + ' <small style="color:#8a8d91;font-weight:400">#'+ a.id + ' • ' + a.model + '</small></h3>'
+      div.className = 'asst' + (isActive ? ' active' : '') + (paused ? ' paused' : '');
+      div.innerHTML = '<h3>' + (isActive ? ''+icon('check-circle','w-4 h-4 inline text-emerald-500 align-middle')+' ' : '') + a.name + ' <small style="color:#8a8d91;font-weight:400">#'+ a.id + ' • ' + a.model + '</small>' + (paused ? '<span class="badge-pause">⏸ EN PAUSE</span>' : '') + '</h3>'
         + '<div class="meta">'
         + ''+icon('key','w-4 h-4 inline align-middle')+' Clé : ' + (a.keyConfigured ? '<span class="status-ok">'+icon('check-circle','w-4 h-4 inline text-emerald-500 align-middle')+' ' + a.keyMask + '</span>' : '<span class="status-ko">'+icon('globe','w-4 h-4 inline align-middle')+' clé globale</span>') + ' • '
         + ''+icon('message-circle','w-5 h-5 inline align-middle')+' API Conversations : ' + (a.use_conversations ? '<span class="status-ok">ON</span>' : '<span class="status-ko">OFF</span>') + '</div>'
@@ -122,6 +129,9 @@ async function load() {
         + '<label>'+icon('key','w-4 h-4 inline align-middle')+' Clé API (vide = garder, "effacer" = retour clé globale)</label><input data-f="api_key" type="password" placeholder="' + (a.keyConfigured ? 'Enregistrée ' + a.keyMask + ' — vide = garder' : 'Coller la clé') + '">'
         + '<div class="row" style="margin-top:12px">'
         + (!isActive ? '<button class="btn-warn btn-sm" data-act="on">'+icon('play','w-4 h-4 inline align-middle')+' Activer</button>' : '')
+        + (paused
+          ? '<button class="btn-play btn-sm" data-act="resume">'+icon('play','w-4 h-4 inline align-middle')+' Reprendre</button>'
+          : '<button class="btn-pause btn-sm" data-act="pause">'+icon('pause','w-4 h-4 inline align-middle')+' Pause</button>')
         + '<button class="btn-ghost btn-sm" data-act="save">'+icon('save','w-4 h-4 inline align-middle')+' Enregistrer</button>'
         + '<button class="btn-danger btn-sm" data-act="del">'+icon('trash-2','w-4 h-4 inline align-middle')+' Supprimer</button></div>'
         + '<p class="hint">Modifier modèle/instructions/clé réinitialise ses conversations.</p>';
@@ -138,6 +148,8 @@ async function load() {
       if (del) del.onclick = async () => { if (!confirm('Supprimer "' + a.name + '" ?')) return; await fetch('/api/assistants/' + a.id, { method: 'DELETE', headers: H }); load(); };
       const on = div.querySelector('[data-act="on"]');
       if (on) on.onclick = async () => { await fetch('/api/assistants/' + a.id + '/activate', { method: 'POST', headers: H }); load(); };
+      const pz = div.querySelector('[data-act="pause"],[data-act="resume"]');
+      if (pz) pz.onclick = async () => { await fetch('/api/assistants/' + a.id + '/pause', { method: 'POST', headers: H, body: JSON.stringify({ paused: !paused }) }); load(); };
       box.appendChild(div);
     });
     refreshIcons();

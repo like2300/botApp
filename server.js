@@ -172,12 +172,12 @@ function extractConvReply(data) {
 function resolveAssistant(uid) {
   const gk = getApiKey();
   const a = uid ? db.getActiveAssistantForUser(uid) : db.getActiveAssistant();
-  if (!a) return { id: 0, name: 'Global', model: CONFIG.mistralModel, instructions: CONFIG.systemInstructions, instructionsSource: 'global', useConversations: CONFIG.useConversationsApi, historyLimit: CONFIG.historyLimit, key: gk, keySource: gk ? 'globale' : 'aucune' };
+  if (!a) return { id: 0, name: 'Global', model: CONFIG.mistralModel, instructions: CONFIG.systemInstructions, instructionsSource: 'global', paused: false, useConversations: CONFIG.useConversationsApi, historyLimit: CONFIG.historyLimit, key: gk, keySource: gk ? 'globale' : 'aucune' };
   const k = a.api_key || gk;
   // Prompt vide sur l'assistant = on reprend le prompt global (jamais d'identité Mistral par défaut)
   const hasOwn = !!(a.instructions && a.instructions.trim());
   const instructions = hasOwn ? a.instructions : CONFIG.systemInstructions;
-  return { id: a.id, name: a.name, model: a.model, instructions, instructionsSource: hasOwn ? 'assistant' : 'global', useConversations: !!a.use_conversations, historyLimit: a.history_limit || 20, owner: a.owner_login, key: k, keySource: a.api_key ? 'assistant' : (gk ? 'globale' : 'aucune') };
+  return { id: a.id, name: a.name, model: a.model, instructions, instructionsSource: hasOwn ? 'assistant' : 'global', paused: !!a.is_paused, useConversations: !!a.use_conversations, historyLimit: a.history_limit || 20, owner: a.owner_login, key: k, keySource: a.api_key ? 'assistant' : (gk ? 'globale' : 'aucune') };
 }
 // Version publique d'un assistant : JAMAIS la clé en clair
 function publicAssistant(a) {
@@ -290,6 +290,7 @@ async function askViaChat(jid, userMessage, A) {
 
 async function askMistral(uid, jid, userMessage) {
   const A = resolveAssistant(uid);
+  if (A.id !== 0 && A.paused) { log(`⏸️ [${A.name}] en pause : message de ${jid} ignoré (reprenez-le pour répondre).`); return null; }
   log(`🧠 [${A.name}] prompt "${A.instructionsSource}" (${(A.instructions || '').length} car.) + modèle ${A.model}`);
   if (A.useConversations) {
     const reply = await askViaConversations(jid, userMessage, A);
@@ -544,6 +545,14 @@ app.post('/api/assistants/:id/activate', auth.requireAuth, (req, res) => {
   io.to(room(req.user.id)).emit('assistant', { id: a.id, name: a.name });
   log(`▶️ Assistant actif : "${a.name}" (${a.model}) de ${req.user.login}.`);
   res.json({ ok: true });
+});
+// Pause / reprise : en pause, le bot ne répond plus (messages ignorés, sans erreur)
+app.post('/api/assistants/:id/pause', auth.requireAuth, (req, res) => {
+  const a = ownAssistant(req, res); if (!a) return;
+  const paused = req.body.paused !== false;
+  db.setPaused(a.id, paused);
+  log(`${paused ? '⏸️' : '▶️'} Assistant "${a.name}" ${paused ? 'mis en pause (bot silencieux)' : 'repris'} par ${req.user.login}.`);
+  res.json({ ok: true, paused });
 });
 app.get('/api/assistant/active', auth.requireAuth, (req, res) => res.json({ ok: true, active: publicAssistant(db.getActiveAssistantForUser(req.user.id)), whatsapp: userConnected(req.user.id) ? 'connecte' : 'deconnecte' }));
 

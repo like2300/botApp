@@ -106,6 +106,10 @@ if (!hasCol('assistants', 'api_key')) {
 if (!hasCol('conversations', 'instructions')) {
   db.exec(`ALTER TABLE conversations ADD COLUMN instructions TEXT NOT NULL DEFAULT ''`);
 }
+// --- Migration v6 : pause/reprise par assistant (bot silencieux quand en pause) ---
+if (!hasCol('assistants', 'is_paused')) {
+  db.exec(`ALTER TABLE assistants ADD COLUMN is_paused INTEGER NOT NULL DEFAULT 0`);
+}
 // --- Migration v4 : rôle admin/user. Premier compte = admin ---
 if (!hasCol('users', 'role')) {
   db.exec(`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'`);
@@ -141,6 +145,7 @@ const stmts = {
   getAsst: db.prepare('SELECT * FROM assistants WHERE id = ?'),
   updateAsst: db.prepare('UPDATE assistants SET name = ?, model = ?, instructions = ?, use_conversations = ?, history_limit = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'),
   setAsstKey: db.prepare('UPDATE assistants SET api_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'),
+  setPaused: db.prepare('UPDATE assistants SET is_paused = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'),
   deleteAsst: db.prepare('DELETE FROM assistants WHERE id = ?'),
   clearActive: db.prepare('UPDATE assistants SET is_active = 0'),
   clearActiveUser: db.prepare('UPDATE assistants SET is_active = 0 WHERE user_id = ?'),
@@ -188,6 +193,7 @@ module.exports = {
   getAssistant: (id) => stmts.getAsst.get(id) || null,
   updateAssistant: (id, f) => stmts.updateAsst.run(f.name, f.model, f.instructions, f.use_conversations ? 1 : 0, f.history_limit, id),
   setAssistantKey: (id, key) => stmts.setAsstKey.run(key, id),
+  setPaused: (id, paused) => stmts.setPaused.run(paused ? 1 : 0, id),
   deleteAssistant: (id) => stmts.deleteAsst.run(id),
   setActiveAssistant: (uid, id) => { stmts.clearActiveUser.run(uid); stmts.setActiveUser.run(id, uid); },
   getActiveAssistant: () => stmts.getActive.get() || null,
