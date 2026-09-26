@@ -27,20 +27,43 @@ fi
 
 echo "==> 2/ Dependances (mode basse memoire pour mutualise)"
 # AlwaysData mutualise = RAM limitee : on bride Node + npm pour eviter le "Killed".
-export NODE_OPTIONS="--max-old-space-size=512"
+export NODE_OPTIONS="--max-old-space-size=384"
 export MAKEFLAGS="-j1"
 export JOBS=1
-npm_install_light() {
-  npm install --omit=dev --no-audit --no-fund --maxsockets=1
+echo "    Memoire dispo :"
+free -m 2>/dev/null || true
+NPMFLAGS="--omit=dev --no-audit --no-fund --maxsockets=1 --fetch-retries=5 --fetch-retry-mintimeout=20000"
+install_all_light() {
+  # shellcheck disable=SC2086
+  npm install $NPMFLAGS
+}
+# Dernier recours : installer paquet par paquet (chaque transaction npm
+# consomme beaucoup moins de RAM qu'une resolution complete de l'arbre).
+install_pkg_by_pkg() {
+  echo "    Installation paquet par paquet (long mais econome en RAM)..."
+  for pkg in "cors@2" "pino@10" "qrcode@1" "express@4" "socket.io@4" "@whiskeysockets/baileys@6" "better-sqlite3@13"; do
+    echo "    -- $pkg"
+    # shellcheck disable=SC2086
+    npm install "$pkg" --no-save $NPMFLAGS || return 1
+  done
 }
 if [ -f package-lock.json ]; then
-  npm ci --omit=dev --no-audit --no-fund --maxsockets=1 || {
-    echo "    npm ci echoue (memoire ?), repli sur 'npm install' leger..."
+  # shellcheck disable=SC2086
+  npm ci $NPMFLAGS || {
+    echo "    npm ci tue (memoire), essai 'npm install' leger..."
     rm -rf node_modules
-    npm_install_light
+    install_all_light || {
+      echo "    'npm install' tue aussi, repli paquet par paquet..."
+      rm -rf node_modules
+      install_pkg_by_pkg
+    }
   }
 else
-  npm_install_light
+  install_all_light || {
+    echo "    'npm install' tue, repli paquet par paquet..."
+    rm -rf node_modules
+    install_pkg_by_pkg
+  }
 fi
 
 echo "==> 3/ Dossiers de donnees"
