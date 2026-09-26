@@ -404,6 +404,10 @@
                                 rows="3"
                                 class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus-ring transition-all resize-none"
                             ></textarea>
+                            <p
+                                id="instrHint"
+                                class="text-[11px] text-slate-500 mt-1"
+                            ></p>
                         </div>
                     </div>
 
@@ -635,11 +639,36 @@
             // Appel initial une fois le DOM chargé
             document.addEventListener("DOMContentLoaded", refreshIcons);
 
+            let activeAsstId = null;
             async function loadConfig() {
                 const c = await fetch("/api/config", { headers: authH() }).then(
                     (r) => r.json(),
                 );
-                $("systemInstructions").value = c.systemInstructions || "";
+                // Instructions = celles de l'assistant ACTIF (modifiables ici directement),
+                // sinon les globales du compte
+                try {
+                    const a = await fetch("/api/assistant/active", {
+                        headers: authH(),
+                    }).then((r) => r.json());
+                    if (a && a.active) {
+                        activeAsstId = a.active.id;
+                        $("systemInstructions").value =
+                            a.active.instructions || "";
+                        $("instrHint").textContent =
+                            "Instructions de l'assistant actif « " +
+                            a.active.name +
+                            " » — modifiées ici directement.";
+                    } else {
+                        activeAsstId = null;
+                        $("systemInstructions").value =
+                            c.systemInstructions || "";
+                        $("instrHint").textContent =
+                            "Aucun assistant : instructions globales du compte.";
+                    }
+                } catch (e) {
+                    activeAsstId = null;
+                    $("systemInstructions").value = c.systemInstructions || "";
+                }
                 $("phoneNumber").value = c.phoneNumber || "";
                 $("mistralModel").value =
                     c.mistralModel || "mistral-medium-latest";
@@ -679,7 +708,6 @@
                     mistralModel: $("mistralModel").value,
                     useConversationsApi: $("useConversationsApi").checked,
                     historyLimit: $("historyLimit").value,
-                    systemInstructions: $("systemInstructions").value,
                     phoneNumber: $("phoneNumber").value,
                     minDelaySec: $("minDelaySec").value,
                     maxDelaySec: $("maxDelaySec").value,
@@ -689,6 +717,23 @@
                 };
                 if ($("mistralApiKey").value)
                     body.mistralApiKey = $("mistralApiKey").value;
+
+                // Les instructions vont SUR L'ASSISTANT ACTIF (pas en global),
+                // sauf s'il n'y a aucun assistant (globales du compte)
+                if (activeAsstId) {
+                    await fetch("/api/assistants/" + activeAsstId, {
+                        method: "PUT",
+                        headers: {
+                            "Content-Type": "application/json",
+                            ...authH(),
+                        },
+                        body: JSON.stringify({
+                            instructions: $("systemInstructions").value,
+                        }),
+                    });
+                } else {
+                    body.systemInstructions = $("systemInstructions").value;
+                }
 
                 const r = await fetch("/api/config", {
                     method: "POST",
@@ -966,7 +1011,10 @@
                 if (h.jid === currentJid) showHistory(h.jid);
             });
 
-            socket.on("assistant", refreshActive);
+            socket.on("assistant", () => {
+                refreshActive();
+                loadConfig(); // recharge les instructions du nouvel actif
+            });
         </script>
     </body>
 </html>
