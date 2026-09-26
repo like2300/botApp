@@ -25,6 +25,9 @@ if [ "$NODE_MAJOR" -lt 20 ]; then
   exit 1
 fi
 
+if [ -d "$APP_DIR/node_modules/@whiskeysockets/baileys" ] && [ -d "$APP_DIR/node_modules/better-sqlite3" ]; then
+  echo "    node_modules deja present (upload manuel ?), on saute l'installation npm."
+else
 echo "==> 2/ Dependances (mode basse memoire pour mutualise)"
 # AlwaysData mutualise = RAM limitee : on bride Node + npm pour eviter le "Killed".
 export NODE_OPTIONS="--max-old-space-size=384"
@@ -65,6 +68,7 @@ else
     install_pkg_by_pkg
   }
 fi
+fi # fin du saut si node_modules deja present
 
 echo "==> 3/ Dossiers de donnees"
 mkdir -p "${AUTH_DIR:-$APP_DIR/auth_info}"
