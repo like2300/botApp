@@ -142,7 +142,7 @@ function extractConvReply(data) {
 function resolveAssistant() {
   const gk = getApiKey();
   const a = db.getActiveAssistant();
-  if (!a) return { id: 0, name: 'Global', model: CONFIG.mistralModel, instructions: CONFIG.systemInstructions, useConversations: CONFIG.useConversationsApi, historyLimit: CONFIG.historyLimit, key: gk, keySource: gk ? 'globale' : 'aucune' };
+  if (!a) return { id: 0, name: 'Global', model: CONFIG.mistralModel, instructions: CONFIG.systemInstructions, instructionsSource: 'global', useConversations: CONFIG.useConversationsApi, historyLimit: CONFIG.historyLimit, key: gk, keySource: gk ? 'globale' : 'aucune' };
   const k = a.api_key || gk;
   // Prompt vide sur l'assistant = on reprend le prompt global (jamais d'identité Mistral par défaut)
   const hasOwn = !!(a.instructions && a.instructions.trim());
@@ -549,25 +549,26 @@ app.post('/api/logout', async (req, res) => {
   res.json({ ok: true });
 });
 app.get('/api/logs', (req, res) => res.json(logs));
-// Test reel : demarre une mini-conversation puis la supprime (ne pollue pas l'historique)
+// Test reel : mini-conversation avec le VRAI prompt systeme (ne pollue pas l'historique)
 app.get('/api/test-mistral', async (req, res) => {
   const A = resolveAssistant();
   if (!A.key) return res.json({ ok: false, error: 'Cle manquante (ni assistant ni globale)' });
+  const probe = 'Qui es-tu ? Presente-toi en une phrase courte en respectant tes instructions.';
   if (A.useConversations) {
     const r = await mistralFetch('https://api.mistral.ai/v1/conversations', {
       model: A.model,
-      inputs: [{ role: 'user', content: 'Dis bonjour en 5 mots' }],
+      inputs: [{ role: 'user', content: probe }],
       tools: [],
-      completion_args: { temperature: 0.7, max_tokens: 50, top_p: 1 },
-      instructions: ''
+      completion_args: { temperature: 0.7, max_tokens: 150, top_p: 1 },
+      instructions: (A.instructions || '') + FORMAT_SUFFIX
     }, A.key);
     const reply = r && r.ok ? toWhatsApp(extractConvReply(r.data)) : null;
     if (r && !r.ok) log(`❌ Test HTTP ${r.status} : ${(r.data.message || '').slice(0, 200)}`);
-    return res.json({ ok: !!reply, mode: 'conversations', model: A.model, keySource: A.keySource, assistant: A.name, reply });
+    return res.json({ ok: !!reply, mode: 'conversations', model: A.model, keySource: A.keySource, instructionsSource: A.instructionsSource, assistant: A.name, reply });
   }
-  const reply = await askViaChat('__test__', 'Dis bonjour en 5 mots', { ...A, id: -1 });
+  const reply = await askViaChat('__test__', probe, { ...A, id: -1 });
   db.clearHistory(-1, '__test__');
-  res.json({ ok: !!reply, mode: 'chat', model: A.model, keySource: A.keySource, assistant: A.name, reply });
+  res.json({ ok: !!reply, mode: 'chat', model: A.model, keySource: A.keySource, instructionsSource: A.instructionsSource, assistant: A.name, reply });
 });
 // Historique SQLite par contact, scope par assistant actif (suivi local, meme si Mistral cloud est vide)
 function reqAid(req) {
