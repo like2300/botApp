@@ -636,7 +636,9 @@
             document.addEventListener("DOMContentLoaded", refreshIcons);
 
             async function loadConfig() {
-                const c = await fetch("/api/config").then((r) => r.json());
+                const c = await fetch("/api/config", { headers: authH() }).then(
+                    (r) => r.json(),
+                );
                 $("systemInstructions").value = c.systemInstructions || "";
                 $("phoneNumber").value = c.phoneNumber || "";
                 $("mistralModel").value =
@@ -690,7 +692,7 @@
 
                 const r = await fetch("/api/config", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: { "Content-Type": "application/json", ...authH() },
                     body: JSON.stringify(body),
                 }).then((r) => r.json());
 
@@ -701,7 +703,10 @@
 
             async function deleteKey() {
                 if (!confirm("Supprimer la clé de SQLite ?")) return;
-                await fetch("/api/key", { method: "DELETE" });
+                await fetch("/api/key", {
+                    method: "DELETE",
+                    headers: authH(),
+                });
                 loadConfig();
             }
 

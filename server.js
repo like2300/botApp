@@ -62,9 +62,31 @@ function loadConfig() {
 loadConfig();
 function saveConfig() { for (const k of Object.keys(CONFIG)) db.setSetting('cfg_' + k, CONFIG[k]); }
 
-// ---------- Cle API : env > SQLite. Jamais exposee en clair, jamais loggee ----------
-function getApiKey() {
-  return process.env.MISTRAL_API_KEY || db.getSetting('mistral_key', '');
+// ---------- Config PAR COMPTE : chaque compte a ses reglages (clé, modèle, prompt, délais...)
+// Priorité : cfg_<uid>_<clé> > cfg_<clé> (global) > défaut. La config globale reste le défaut.
+function userCfg(uid) {
+  const out = {};
+  for (const k of Object.keys(CONFIG)) {
+    let v = uid ? db.getSetting(`cfg_${uid}_${k}`, null) : null;
+    if (v === null || v === undefined || v === '') v = db.getSetting('cfg_' + k, null);
+    if (v === null || v === undefined || v === '') v = CONFIG[k];
+    if (typeof CONFIG[k] === 'boolean') out[k] = (v === true || v === 'true');
+    else if (typeof CONFIG[k] === 'number') out[k] = Number(v);
+    else out[k] = v;
+  }
+  return out;
+}
+function saveUserConfig(uid, obj) {
+  for (const k of Object.keys(obj)) {
+    if (Object.prototype.hasOwnProperty.call(CONFIG, k)) db.setSetting(`cfg_${uid}_${k}`, obj[k]);
+  }
+}
+
+// ---------- Cle API : env > compte > globale (SQLite). Jamais exposee en clair, jamais loggee ----------
+function getApiKey(uid) {
+  if (process.env.MISTRAL_API_KEY) return process.env.MISTRAL_API_KEY;
+  if (uid) { const k = db.getSetting(`cfg_${uid}_mistral_key`, ''); if (k) return k; }
+  return db.getSetting('mistral_key', '');
 }
 function maskKey(k) { return k ? '***' + k.slice(-4) : ''; }
 
@@ -170,13 +192,15 @@ function extractConvReply(data) {
 // Assistant qui repond : l'assistant actif DU COMPTE (chaque compte = son numero + son prompt)
 // Clé : celle de l'assistant, sinon clé globale (SQLite/ENV)
 function resolveAssistant(uid) {
-  const gk = getApiKey();
+  const gk = getApiKey(uid);
+  const UC = uid ? userCfg(uid) : CONFIG;
   const a = uid ? db.getActiveAssistantForUser(uid) : db.getActiveAssistant();
-  if (!a) return { id: 0, name: 'Global', model: CONFIG.mistralModel, instructions: CONFIG.systemInstructions, instructionsSource: 'global', paused: false, useConversations: CONFIG.useConversationsApi, historyLimit: CONFIG.historyLimit, key: gk, keySource: gk ? 'globale' : 'aucune' };
+  if (!a) return { id: 0, name: 'Global', model: UC.mistralModel, instructions: UC.systemInstructions, instructionsSource: 'global', paused: false, useConversations: UC.useConversationsApi, historyLimit: UC.historyLimit, key: gk, keySource: gk ? (process.env.MISTRAL_API_KEY ? 'env' : 'compte/globale') : 'aucune' };
   const k = a.api_key || gk;
-  // Prompt vide sur l'assistant = on reprend le prompt global (jamais d'identité Mistral par défaut)
+  // Prompt vide sur l'assistant = on reprend le prompt DU COMPTE (jamais d'identité Mistral par défaut)
   const hasOwn = !!(a.instructions && a.instructions.trim());
-  const instructions = hasOwn ? a.instructions : CONFIG.systemInstructions;
+  const UC2 = uid ? userCfg(uid) : CONFIG;
+  const instructions = hasOwn ? a.instructions : UC2.systemInstructions;
   return { id: a.id, name: a.name, model: a.model, instructions, instructionsSource: hasOwn ? 'assistant' : 'global', paused: !!a.is_paused, useConversations: !!a.use_conversations, historyLimit: a.history_limit || 20, owner: a.owner_login, key: k, keySource: a.api_key ? 'assistant' : (gk ? 'globale' : 'aucune') };
 }
 // Version publique d'un assistant : JAMAIS la clé en clair
@@ -307,20 +331,21 @@ async function processQueue() {
   processing = true;
   while (messageQueue.length > 0) {
     const { uid, from, text } = messageQueue.shift();
+    const C = userCfg(uid); // réglages DU COMPTE (délais, quotas...)
     const sock = userSock(uid);
     if (!sock) { log(`⚠️ Compte #${uid} : WhatsApp non connecté, message de ${from} ignoré (scannez le QR).`); continue; }
     const r = rl(uid);
     const now = Date.now();
     r.sent = r.sent.filter(t => now - t < 60000);
-    if (r.sent.length >= CONFIG.maxPerMinute) {
-      log(`⏳ Compte #${uid} : limite ${CONFIG.maxPerMinute}/min atteinte, pause 60s...`);
+    if (r.sent.length >= C.maxPerMinute) {
+      log(`⏳ Compte #${uid} : limite ${C.maxPerMinute}/min atteinte, pause 60s...`);
       await sleep(60000); continue;
     }
     const last = r.lastReply[from] || 0;
-    const waitUser = CONFIG.cooldownPerUserSec * 1000 - (Date.now() - last);
+    const waitUser = C.cooldownPerUserSec * 1000 - (Date.now() - last);
     if (waitUser > 0) await sleep(waitUser);
 
-    const delay = rand(CONFIG.minDelaySec, CONFIG.maxDelaySec) * 1000;
+    const delay = rand(C.minDelaySec, C.maxDelaySec) * 1000;
     try { await sock.sendPresenceUpdate('composing', from); } catch {}
     await sleep(Math.min(delay, 8000));
     try { await sock.sendPresenceUpdate('paused', from); } catch {}
@@ -379,12 +404,13 @@ const pino = require('pino');
     });
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       if (type !== 'notify') return;
+      const C = userCfg(uid);
       for (const msg of messages) {
         if (msg.key.fromMe || !msg.message) continue;
         if (msg.message.protocolMessage || msg.message.senderKeyDistributionMessage) continue;
         const from = msg.key.remoteJid;
         if (!from || from === 'status@broadcast') continue;
-        if (CONFIG.ignoreGroups && (from.endsWith('@g.us') || from.endsWith('@broadcast'))) continue;
+        if (C.ignoreGroups && (from.endsWith('@g.us') || from.endsWith('@broadcast'))) continue;
         const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
         if (!text) continue;
         log(`📩 [compte #${uid}] ${from} : ${text}`);
@@ -422,8 +448,9 @@ app.post('/api/auth/register', (req, res) => {
   const role = db.hasAdmin() ? 'user' : 'admin'; // premier compte = admin
   const r = db.createUser(login, name || login, phone, auth.hashPassword(password), role);
   const newUid = Number(r.lastInsertRowid);
-  // 1er assistant de l'utilisateur, reprend la config globale actuelle
-  const asst = db.createAssistant({ user_id: newUid, name: 'Principal', model: CONFIG.mistralModel, instructions: CONFIG.systemInstructions, use_conversations: CONFIG.useConversationsApi, history_limit: CONFIG.historyLimit, is_active: !db.getActiveAssistantForUser(newUid) });
+  const NUC = userCfg(newUid); // reprend les défauts (globaux) pour son 1er assistant
+  // 1er assistant de l'utilisateur, reprend la config actuelle
+  const asst = db.createAssistant({ user_id: newUid, name: 'Principal', model: NUC.mistralModel, instructions: NUC.systemInstructions, use_conversations: NUC.useConversationsApi, history_limit: NUC.historyLimit, is_active: !db.getActiveAssistantForUser(newUid) });
   const token = auth.newToken();
   db.createSession(token, newUid, Date.now() + auth.SESSION_DAYS * 864e5);
   log(`👤 Inscription : ${login} (${role}, assistant #${asst.lastInsertRowid} créé).`);
@@ -557,47 +584,48 @@ app.post('/api/assistants/:id/pause', auth.requireAuth, (req, res) => {
 app.get('/api/assistant/active', auth.requireAuth, (req, res) => res.json({ ok: true, active: publicAssistant(db.getActiveAssistantForUser(req.user.id)), whatsapp: userConnected(req.user.id) ? 'connecte' : 'deconnecte' }));
 
 // ---------- API ----------
-// Config SANS la cle en clair (securite : l'interface ne voit que "configuree oui/non + ***4 derniers")
-app.get('/api/config', (req, res) => {
-  const k = getApiKey();
-  res.json({ ...CONFIG, keyConfigured: !!k, mistralApiKey: maskKey(k), envKey: !!process.env.MISTRAL_API_KEY });
+// Config SANS la cle en clair : chaque compte voit/modifie SA config (jamais exposee)
+// (l'interface ne voit que "configuree oui/non + ***4 derniers")
+app.get('/api/config', auth.requireAuth, (req, res) => {
+  const k = getApiKey(req.user.id);
+  res.json({ ...userCfg(req.user.id), keyConfigured: !!k, mistralApiKey: maskKey(k), envKey: !!process.env.MISTRAL_API_KEY });
 });
-app.post('/api/config', (req, res) => {
+app.post('/api/config', auth.requireAuth, (req, res) => {
+  const uid = req.user.id;
   const { mistralApiKey, mistralModel, systemInstructions, useConversationsApi, historyLimit, phoneNumber, minDelaySec, maxDelaySec, maxPerMinute, cooldownPerUserSec, ignoreGroups } = req.body;
   if (mistralApiKey && !mistralApiKey.startsWith('***')) {
-    db.setSetting('mistral_key', mistralApiKey); // stockee cote serveur uniquement (SQLite)
-    log('🔐 Cle API mise a jour (stockee en SQLite, jamais exposee).');
+    db.setSetting(`cfg_${uid}_mistral_key`, mistralApiKey); // clé DU COMPTE, côté serveur uniquement (SQLite)
+    log(`🔐 [compte #${uid}] Cle API mise a jour (stockee en SQLite, jamais exposee).`);
   }
-  if (mistralModel) CONFIG.mistralModel = mistralModel;
-  if (systemInstructions !== undefined && systemInstructions !== CONFIG.systemInstructions) {
-    CONFIG.systemInstructions = systemInstructions;
+  const perUser = {};
+  if (mistralModel) perUser.mistralModel = mistralModel;
+  if (systemInstructions !== undefined && systemInstructions !== userCfg(uid).systemInstructions) {
+    perUser.systemInstructions = systemInstructions;
     // Les conversation_id Mistral gardent les instructions de leur creation :
-    // nouveau prompt => on invalide toutes les conversations pour que chacun reparte avec le nouveau prompt
-    const n = db.resetAllConvs();
-    log(`🧹 Nouveau system prompt : ${n} conversation(s) Mistral reinitialisee(s), le nouveau prompt s'appliquera au prochain message.`);
+    // nouveau prompt => on invalide les conversations DU COMPTE pour repartir avec le nouveau prompt
+    let n = 0;
+    for (const a of db.listAssistants(uid)) n += db.resetAssistantConvs(a.id);
+    log(`🧹 [compte #${uid}] Nouveau prompt : ${n} conversation(s) Mistral reinitialisee(s), le nouveau prompt s'appliquera au prochain message.`);
   }
-  if (useConversationsApi !== undefined && !!useConversationsApi !== CONFIG.useConversationsApi) {
+  if (useConversationsApi !== undefined && !!useConversationsApi !== userCfg(uid).useConversationsApi) {
     // Bascule Conversations ON/OFF = admin uniquement (les autres la voient même pas dans l'UI)
-    const tok = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-    const s = tok && db.getSession(tok);
-    const u = s && s.expires_at > Date.now() ? db.getUserById(s.user_id) : null;
-    if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Réservé à l administrateur.' });
-    CONFIG.useConversationsApi = !!useConversationsApi;
+    if (!req.user || req.user.role !== 'admin') return res.status(403).json({ error: 'Réservé à l administrateur.' });
+    perUser.useConversationsApi = !!useConversationsApi;
   }
-  if (historyLimit) CONFIG.historyLimit = Math.min(100, Math.max(2, Number(historyLimit)));
-  if (phoneNumber !== undefined) CONFIG.phoneNumber = phoneNumber;
-  if (minDelaySec) CONFIG.minDelaySec = Number(minDelaySec);
-  if (maxDelaySec) CONFIG.maxDelaySec = Number(maxDelaySec);
-  if (maxPerMinute) CONFIG.maxPerMinute = Number(maxPerMinute);
-  if (cooldownPerUserSec) CONFIG.cooldownPerUserSec = Number(cooldownPerUserSec);
-  if (ignoreGroups !== undefined) CONFIG.ignoreGroups = !!ignoreGroups;
-  saveConfig();
-  log('⚙️ Configuration mise a jour.');
-  res.json({ ok: true, keyConfigured: !!getApiKey() });
+  if (historyLimit) perUser.historyLimit = Math.min(100, Math.max(2, Number(historyLimit)));
+  if (phoneNumber !== undefined) perUser.phoneNumber = phoneNumber;
+  if (minDelaySec) perUser.minDelaySec = Number(minDelaySec);
+  if (maxDelaySec) perUser.maxDelaySec = Number(maxDelaySec);
+  if (maxPerMinute) perUser.maxPerMinute = Number(maxPerMinute);
+  if (cooldownPerUserSec) perUser.cooldownPerUserSec = Number(cooldownPerUserSec);
+  if (ignoreGroups !== undefined) perUser.ignoreGroups = !!ignoreGroups;
+  saveUserConfig(uid, perUser);
+  log(`⚙️ [compte #${uid}] Configuration mise a jour.`);
+  res.json({ ok: true, keyConfigured: !!getApiKey(uid) });
 });
-app.delete('/api/key', (req, res) => {
-  db.delSetting('mistral_key');
-  log('🗑️ Cle API supprimee de SQLite.');
+app.delete('/api/key', auth.requireAuth, (req, res) => {
+  db.delSetting(`cfg_${req.user.id}_mistral_key`);
+  log(`🗑️ [compte #${req.user.id}] Cle API supprimee.`);
   res.json({ ok: true });
 });
 app.post('/api/logout', auth.requireAuth, async (req, res) => {
