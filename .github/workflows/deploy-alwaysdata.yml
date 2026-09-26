@@ -1,0 +1,29 @@
+name: deploy-alwaysdata
+# Deploiement auto : chaque push sur main met a jour le serveur AlwaysData.
+#
+# SECRETS A CONFIGURER (GitHub > Settings > Secrets and variables > Actions) :
+#   ALWAYS_HOST    : hote SSH (ex. ssh-omerlinkchat.alwaysdata.com)
+#   ALWAYS_USER    : compte SSH (ex. omerlinkchat)
+#   ALWAYS_SSH_KEY : cle SSH PRIVEE (ed25519) dont la partie publique est dans
+#                    ~/.ssh/authorized_keys sur le serveur
+#   ALWAYS_APP_DIR : dossier du projet (ex. /home/omerlinkchat/botApp)
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'README.md'
+      - '.github/workflows/build-node-modules.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mise a jour + redemarrage sur AlwaysData
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.ALWAYS_HOST }}
+          username: ${{ secrets.ALWAYS_USER }}
+          key: ${{ secrets.ALWAYS_SSH_KEY }}
+          port: 22
+          script: |
+            cd ${{ secrets.ALWAYS_APP_DIR }} && bash deploy-alwaysdata.sh
