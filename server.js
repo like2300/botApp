@@ -19,25 +19,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 let waConnected = false;
 app.get('/api/health', (req, res) => res.json({ ok: true, whatsapp: waConnected ? 'connecte' : 'deconnecte', uptime: Math.round(process.uptime()) }));
 
-// ---------- AdminBro / AdminJS : panneau /admin (réservé admin) ----------
-(async () => {
-  try {
-    const { default: AdminJSExpress } = await import('@adminjs/express');
-    const { default: formidable } = await import('express-formidable');
-    const { buildAdmin } = require('./admin');
-    const { admin, authenticate } = buildAdmin();
-    const adminRouter = AdminJSExpress.buildAuthenticatedRouter(admin, {
-      cookiePassword: process.env.ADMIN_COOKIE_SECRET || 'admin-cookie-secret-change-me',
-      authenticate,
-      cookieName: 'adminjs',
-    }, null, { resave: false, saveUninitialized: false, secret: process.env.ADMIN_COOKIE_SECRET || 'admin-cookie-secret-change-me' }, formidable());
-    app.use(admin.options.rootPath, adminRouter);
-    console.log(`🛠️  AdminJS : http://localhost:${process.env.PORT || 3000}${admin.options.rootPath} (compte admin uniquement)`);
-  } catch (e) {
-    console.log('⚠️ AdminJS désactivé : ' + e.message);
-  }
-})();
-
 // ---------- CONFIG : SQLite d'abord, env ensuite, config.json (migration une fois) ----------
 let CONFIG = {
   mistralModel: 'mistral-medium-latest',
