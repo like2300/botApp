@@ -25,11 +25,22 @@ if [ "$NODE_MAJOR" -lt 20 ]; then
   exit 1
 fi
 
-echo "==> 2/ Dependances (npm ci)"
+echo "==> 2/ Dependances (mode basse memoire pour mutualise)"
+# AlwaysData mutualise = RAM limitee : on bride Node + npm pour eviter le "Killed".
+export NODE_OPTIONS="--max-old-space-size=512"
+export MAKEFLAGS="-j1"
+export JOBS=1
+npm_install_light() {
+  npm install --omit=dev --no-audit --no-fund --maxsockets=1
+}
 if [ -f package-lock.json ]; then
-  npm ci --omit=dev
+  npm ci --omit=dev --no-audit --no-fund --maxsockets=1 || {
+    echo "    npm ci echoue (memoire ?), repli sur 'npm install' leger..."
+    rm -rf node_modules
+    npm_install_light
+  }
 else
-  npm install --omit=dev
+  npm_install_light
 fi
 
 echo "==> 3/ Dossiers de donnees"
