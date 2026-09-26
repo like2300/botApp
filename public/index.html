@@ -709,7 +709,7 @@
                 if (r.ok) {
                     tr.className =
                         "text-xs font-medium p-3 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 block";
-                    tr.innerHTML = `${icon("check-circle", "w-4 h-4 text-emerald-600")} OK [${r.mode} / ${r.model} / ${r.keySource} / ${r.assistant}] : ${r.reply}`;
+                    tr.innerHTML = `${icon("check-circle", "w-4 h-4 text-emerald-600")} OK [${r.mode} / ${r.model} / ${r.keySource} / ${r.assistant} / prompt:${r.instructionsSource || "?"}] : ${r.reply}`;
                 } else {
                     tr.className =
                         "text-xs font-medium p-3 rounded-lg bg-rose-50 text-rose-700 border border-rose-100 block";
