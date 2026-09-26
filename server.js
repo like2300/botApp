@@ -611,4 +611,10 @@ app.get('/api/status', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => { console.log(`🌐 Interface : http://localhost:${PORT}`); if (!process.env.SKIP_BOT) startBot(); });
+// Sur Vercel (serverless) : pas de listen(), pas de bot WhatsApp persistant — on exporte app.
+if (!process.env.VERCEL) {
+  server.listen(PORT, () => { console.log(`🌐 Interface : http://localhost:${PORT}`); if (!process.env.SKIP_BOT) startBot(); });
+} else {
+  console.log('ℹ️ Mode Vercel : API seule (bot WhatsApp désactivé, utilisez Railway/Render pour le bot).');
+}
+module.exports = app;
