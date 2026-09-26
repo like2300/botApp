@@ -610,6 +610,15 @@
             const socket = io();
             const $ = (id) => document.getElementById(id);
             let currentJid = null;
+            // Token du compte connecté (chaque compte = son bot WhatsApp + son prompt)
+            const authH = () => {
+                const t = localStorage.getItem("bot_token");
+                return t ? { Authorization: "Bearer " + t } : {};
+            };
+            const registerSocket = () => {
+                const t = localStorage.getItem("bot_token");
+                if (t) socket.emit("register", t); // rejoint la room de SON compte (QR/statut ciblés)
+            };
 
             // Fonction utilitaire propre pour générer les icônes
             function icon(name, className = "w-4 h-4 inline align-middle") {
@@ -703,9 +712,9 @@
                 tr.className =
                     "text-xs font-medium p-3 rounded-lg bg-blue-50 text-blue-700 border border-blue-100 block";
 
-                const r = await fetch("/api/test-mistral").then((r) =>
-                    r.json(),
-                );
+                const r = await fetch("/api/test-mistral", {
+                    headers: authH(),
+                }).then((r) => r.json());
                 if (r.ok) {
                     tr.className =
                         "text-xs font-medium p-3 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 block";
@@ -719,7 +728,10 @@
 
             async function logout() {
                 if (confirm("Changer de numéro WhatsApp ?")) {
-                    await fetch("/api/logout", { method: "POST" });
+                    await fetch("/api/logout", {
+                        method: "POST",
+                        headers: authH(),
+                    });
                     location.reload();
                 }
             }
@@ -769,9 +781,9 @@
 
             async function refreshActive() {
                 try {
-                    const a = await fetch("/api/assistant/active").then((r) =>
-                        r.json(),
-                    );
+                    const a = await fetch("/api/assistant/active", {
+                        headers: authH(),
+                    }).then((r) => r.json());
                     if (a.active) {
                         $("activeAsst").innerHTML =
                             `${icon("play", "w-3.5 h-3.5 text-emerald-600")} Actif : ${a.active.name} (${a.active.model}) — de ${a.active.owner_login}`;
@@ -781,7 +793,11 @@
             }
 
             async function loadContacts() {
-                const list = await fetch("/api/contacts").then((r) => r.json());
+                const list = await fetch("/api/contacts", {
+                    headers: authH(),
+                })
+                    .then((r) => r.json())
+                    .catch(() => []);
                 const container = $("contacts");
 
                 container.innerHTML = list.length
@@ -803,6 +819,7 @@
                 currentJid = jid;
                 const h = await fetch(
                     "/api/history?jid=" + encodeURIComponent(jid),
+                    { headers: authH() },
                 ).then((r) => r.json());
 
                 $("histTitle").innerHTML =
@@ -842,7 +859,7 @@
                 if (!currentJid) return alert("Choisissez d'abord un contact.");
                 await fetch("/api/conversation/reset", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: { "Content-Type": "application/json", ...authH() },
                     body: JSON.stringify({
                         jid: currentJid,
                         clearMessages: clear,
@@ -886,7 +903,9 @@
 
             async function loadStatus() {
                 try {
-                    const r = await fetch("/api/status").then((x) => x.json());
+                    const r = await fetch("/api/status", {
+                        headers: authH(),
+                    }).then((x) => x.json());
                     const b = $("status");
                     if (r.connected) {
                         b.innerHTML =
@@ -902,7 +921,9 @@
                 } catch (e) {}
             }
             loadStatus();
+            registerSocket();
             socket.on("connect", () => {
+                registerSocket();
                 loadStatus();
             });
 

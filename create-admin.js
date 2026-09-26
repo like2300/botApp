@@ -43,7 +43,7 @@ if (u) {
     user_id: id, name: 'Principal', model: 'mistral-medium-latest',
     instructions: 'Tu es un assistant virtuel utile, poli et court dans tes reponses sur WhatsApp.',
     use_conversations: true, history_limit: 20, api_key: '',
-    is_active: !db.getActiveAssistant(),
+    is_active: !db.getActiveAssistantForUser(id),
   });
   console.log(`OK: admin ${login} cree (id=${id}) + assistant Principal.`);
 }

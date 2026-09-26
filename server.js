@@ -16,8 +16,10 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Healthcheck pour l'hébergeur (Railway/Render/Docker)
-let waConnected = false;
-app.get('/api/health', (req, res) => res.json({ ok: true, whatsapp: waConnected ? 'connecte' : 'deconnecte', uptime: Math.round(process.uptime()) }));
+app.get('/api/health', (req, res) => {
+  const n = [...waConnected.values()].filter(Boolean).length;
+  res.json({ ok: true, whatsapp: `${n} compte(s) connecte(s)`, uptime: Math.round(process.uptime()) });
+});
 
 // ---------- CONFIG : SQLite d'abord, env ensuite, config.json (migration une fois) ----------
 let CONFIG = {
@@ -66,11 +68,39 @@ function getApiKey() {
 }
 function maskKey(k) { return k ? '***' + k.slice(-4) : ''; }
 
-let sock = null;
-let messageQueue = [];
+// ---------- Multi-comptes : UN bot WhatsApp par user (chaque compte = son numero + son prompt) ----------
+// socks : userId -> socket Baileys ; waConnected : userId -> bool
+let socks = new Map();
+let waConnected = new Map();
+let messageQueue = []; // items { uid, from, text }
 let processing = false;
-let sentTimestamps = [];
-let lastReplyPerUser = {};
+let rlPerUser = new Map(); // uid -> { sent: [], lastReply: {} }
+function rl(uid) {
+  let r = rlPerUser.get(uid);
+  if (!r) { r = { sent: [], lastReply: {} }; rlPerUser.set(uid, r); }
+  return r;
+}
+function room(uid) { return 'user_' + uid; }
+function userSock(uid) { const e = socks.get(uid); return e ? e.sock : null; }
+function userConnected(uid) { return !!waConnected.get(uid); }
+function firstSock() { for (const e of socks.values()) if (e.sock) return e.sock; return null; }
+// Dossier session WhatsApp du compte (migration auto de l'ancien dossier unique vers user_1)
+const AUTH_BASE = process.env.AUTH_DIR || 'auth_info';
+function authDirFor(uid) { return path.join(AUTH_BASE, 'user_' + uid); }
+function migrateLegacyAuth() {
+  try {
+    const legacyCreds = path.join(AUTH_BASE, 'creds.json');
+    const u1dir = path.join(AUTH_BASE, 'user_1');
+    if (fs.existsSync(legacyCreds) && !fs.existsSync(path.join(u1dir, 'creds.json'))) {
+      fs.mkdirSync(u1dir, { recursive: true });
+      for (const f of fs.readdirSync(AUTH_BASE)) {
+        const src = path.join(AUTH_BASE, f);
+        if (fs.statSync(src).isFile() && f.endsWith('.json')) fs.renameSync(src, path.join(u1dir, f));
+      }
+      log('📦 Session WhatsApp existante migrée vers le compte #1 (re-scan inutile).');
+    }
+  } catch (e) { log('⚠️ Migration auth_info : ' + e.message); }
+}
 let logs = [];
 function log(msg) {
   const line = `[${new Date().toLocaleTimeString()}] ${msg}`;
@@ -137,11 +167,11 @@ function extractConvReply(data) {
   return null;
 }
 
-// Assistant qui repond : l'assistant actif (lie a son user), sinon config globale (avant inscription)
+// Assistant qui repond : l'assistant actif DU COMPTE (chaque compte = son numero + son prompt)
 // Clé : celle de l'assistant, sinon clé globale (SQLite/ENV)
-function resolveAssistant() {
+function resolveAssistant(uid) {
   const gk = getApiKey();
-  const a = db.getActiveAssistant();
+  const a = uid ? db.getActiveAssistantForUser(uid) : db.getActiveAssistant();
   if (!a) return { id: 0, name: 'Global', model: CONFIG.mistralModel, instructions: CONFIG.systemInstructions, instructionsSource: 'global', useConversations: CONFIG.useConversationsApi, historyLimit: CONFIG.historyLimit, key: gk, keySource: gk ? 'globale' : 'aucune' };
   const k = a.api_key || gk;
   // Prompt vide sur l'assistant = on reprend le prompt global (jamais d'identité Mistral par défaut)
@@ -258,8 +288,8 @@ async function askViaChat(jid, userMessage, A) {
   return null;
 }
 
-async function askMistral(jid, userMessage) {
-  const A = resolveAssistant();
+async function askMistral(uid, jid, userMessage) {
+  const A = resolveAssistant(uid);
   log(`🧠 [${A.name}] prompt "${A.instructionsSource}" (${(A.instructions || '').length} car.) + modèle ${A.model}`);
   if (A.useConversations) {
     const reply = await askViaConversations(jid, userMessage, A);
@@ -270,19 +300,22 @@ async function askMistral(jid, userMessage) {
   return askViaChat(jid, userMessage, A);
 }
 
-// --- File d'attente anti-blocage ---
+// --- File d'attente anti-blocage (limites PAR COMPTE : chaque numero a son quota) ---
 async function processQueue() {
-  if (processing || !sock) return;
+  if (processing) return;
   processing = true;
   while (messageQueue.length > 0) {
+    const { uid, from, text } = messageQueue.shift();
+    const sock = userSock(uid);
+    if (!sock) { log(`⚠️ Compte #${uid} : WhatsApp non connecté, message de ${from} ignoré (scannez le QR).`); continue; }
+    const r = rl(uid);
     const now = Date.now();
-    sentTimestamps = sentTimestamps.filter(t => now - t < 60000);
-    if (sentTimestamps.length >= CONFIG.maxPerMinute) {
-      log(`⏳ Limite ${CONFIG.maxPerMinute}/min atteinte, pause 60s...`);
+    r.sent = r.sent.filter(t => now - t < 60000);
+    if (r.sent.length >= CONFIG.maxPerMinute) {
+      log(`⏳ Compte #${uid} : limite ${CONFIG.maxPerMinute}/min atteinte, pause 60s...`);
       await sleep(60000); continue;
     }
-    const { from, text } = messageQueue.shift();
-    const last = lastReplyPerUser[from] || 0;
+    const last = r.lastReply[from] || 0;
     const waitUser = CONFIG.cooldownPerUserSec * 1000 - (Date.now() - last);
     if (waitUser > 0) await sleep(waitUser);
 
@@ -291,15 +324,15 @@ async function processQueue() {
     await sleep(Math.min(delay, 8000));
     try { await sock.sendPresenceUpdate('paused', from); } catch {}
 
-    const reply = await askMistral(from, text);
+    const reply = await askMistral(uid, from, text);
     if (reply) {
       try {
         await sock.sendMessage(from, { text: reply });
-        sentTimestamps.push(Date.now());
-        lastReplyPerUser[from] = Date.now();
-        log(`🤖 Reponse envoyee a ${from} (apres ${Math.round(delay / 1000)}s)`);
-        io.emit('stats', { queue: messageQueue.length, sent: sentTimestamps.length });
-        io.emit('history-update', { jid: from });
+        r.sent.push(Date.now());
+        r.lastReply[from] = Date.now();
+        log(`🤖 [compte #${uid}] Reponse envoyee a ${from} (apres ${Math.round(delay / 1000)}s)`);
+        io.to(room(uid)).emit('stats', { queue: messageQueue.filter(m => m.uid === uid).length, sent: r.sent.length });
+        io.to(room(uid)).emit('history-update', { jid: from });
       } catch (e) { log(`❌ Echec envoi a ${from} : ${e.message}`); }
     } else {
       log(`⚠️ Pas de reponse IA pour ${from}. Verifiez la cle / le quota (bouton Tester).`);
@@ -309,34 +342,39 @@ async function processQueue() {
   processing = false;
 }
 
-async function startBot() {
+async function startBot(uid) {
+  if (!uid) return;
+  if (socks.has(uid)) return; // deja demarre
+  socks.set(uid, { sock: null }); // marque le demarrage (evite les doublons)
   try {
-    const { state, saveCreds } = await useMultiFileAuthState(process.env.AUTH_DIR || 'auth_info');
+    const { state, saveCreds } = await useMultiFileAuthState(authDirFor(uid));
     let version;
     try { version = (await fetchLatestBaileysVersion()).version; } catch { version = [2, 3000, 1043857760]; }
 const pino = require('pino');
-    sock = makeWASocket({ auth: state, version, printQRInTerminal: false, syncFullHistory: false, connectTimeoutMs: 60000,
+    const sock = makeWASocket({ auth: state, version, printQRInTerminal: false, syncFullHistory: false, connectTimeoutMs: 60000,
       logger: pino({ level: 'silent' }),
       browser: ['BotApp', 'Chrome', '1.0.0'],
       markOnlineOnConnect: false,
       fireInitQueries: false,
       shouldSyncHistoryMessage: () => false,
       getMessage: async () => undefined });
+    socks.set(uid, { sock });
     sock.ev.on('creds.update', saveCreds);
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
       if (qr) {
-        try { const qrImg = await QRCode.toDataURL(qr); io.emit('qr', qrImg); log('📲 Nouveau QR genere, scannez-le sur la page web.'); } catch {}
+        try { const qrImg = await QRCode.toDataURL(qr); io.to(room(uid)).emit('qr', qrImg); log(`📲 [compte #${uid}] Nouveau QR genere, scannez-le sur la page web.`); } catch {}
       }
-      if (connection === 'open') { waConnected = true; io.emit('status', 'connecte'); io.emit('qr', null); log('✅ WhatsApp connecte !'); }
+      if (connection === 'open') { waConnected.set(uid, true); io.to(room(uid)).emit('status', 'connecte'); io.to(room(uid)).emit('qr', null); log(`✅ [compte #${uid}] WhatsApp connecte !`); }
       if (connection === 'close') {
-        waConnected = false;
+        waConnected.set(uid, false);
         const code = lastDisconnect?.error?.output?.statusCode;
-        log(`🔌 Deconnecte (code ${code}). Reconnexion...`);
-        if (code !== DisconnectReason.loggedOut) setTimeout(() => startBot(), 3000);
-        else { log('❌ Session deconnectee. Supprimez auth_info et rescanez.'); io.emit('status', 'deconnecte-logout'); }
+        log(`🔌 [compte #${uid}] Deconnecte (code ${code}). Reconnexion...`);
+        socks.delete(uid);
+        if (code !== DisconnectReason.loggedOut) setTimeout(() => startBot(uid), 3000);
+        else { log(`❌ [compte #${uid}] Session deconnectee. Supprimez ${authDirFor(uid)} et rescanez.`); io.to(room(uid)).emit('status', 'deconnecte-logout'); }
       }
-      if (connection === 'connecting') { waConnected = false; io.emit('status', 'connexion...'); }
+      if (connection === 'connecting') { waConnected.set(uid, false); io.to(room(uid)).emit('status', 'connexion...'); }
     });
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       if (type !== 'notify') return;
@@ -348,17 +386,26 @@ const pino = require('pino');
         if (CONFIG.ignoreGroups && (from.endsWith('@g.us') || from.endsWith('@broadcast'))) continue;
         const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
         if (!text) continue;
-        log(`📩 ${from} : ${text}`);
-        io.emit('message', { from, text });
-        messageQueue.push({ from, text });
-        io.emit('stats', { queue: messageQueue.length, sent: sentTimestamps.length });
+        log(`📩 [compte #${uid}] ${from} : ${text}`);
+        io.to(room(uid)).emit('message', { from, text });
+        messageQueue.push({ uid, from, text });
+        io.to(room(uid)).emit('stats', { queue: messageQueue.filter(m => m.uid === uid).length, sent: rl(uid).sent.length });
         processQueue();
       }
     });
   } catch (e) {
-    log('❌ Erreur startBot : ' + e.message + ', reconnexion dans 5s...');
-    setTimeout(() => startBot(), 5000);
+    socks.delete(uid);
+    log(`❌ Erreur startBot [compte #${uid}] : ` + e.message + ', reconnexion dans 5s...');
+    setTimeout(() => startBot(uid), 5000);
   }
+}
+
+// Demarre UN bot par compte inscrit (chacun son numero WhatsApp + son prompt)
+function startAllBots() {
+  migrateLegacyAuth();
+  try {
+    for (const u of db.listUsers()) startBot(u.id);
+  } catch (e) { log('❌ startAllBots : ' + e.message); }
 }
 
 // ---------- AUTH : chaque user a son compte (mot de passe hashé scrypt), plusieurs assistants par user ----------
@@ -373,12 +420,14 @@ app.post('/api/auth/register', (req, res) => {
   if (db.getUserByLogin(login)) return res.status(409).json({ error: 'Identifiant deja pris.' });
   const role = db.hasAdmin() ? 'user' : 'admin'; // premier compte = admin
   const r = db.createUser(login, name || login, phone, auth.hashPassword(password), role);
+  const newUid = Number(r.lastInsertRowid);
   // 1er assistant de l'utilisateur, reprend la config globale actuelle
-  const asst = db.createAssistant({ user_id: Number(r.lastInsertRowid), name: 'Principal', model: CONFIG.mistralModel, instructions: CONFIG.systemInstructions, use_conversations: CONFIG.useConversationsApi, history_limit: CONFIG.historyLimit, is_active: !db.getActiveAssistant() });
+  const asst = db.createAssistant({ user_id: newUid, name: 'Principal', model: CONFIG.mistralModel, instructions: CONFIG.systemInstructions, use_conversations: CONFIG.useConversationsApi, history_limit: CONFIG.historyLimit, is_active: !db.getActiveAssistantForUser(newUid) });
   const token = auth.newToken();
-  db.createSession(token, Number(r.lastInsertRowid), Date.now() + auth.SESSION_DAYS * 864e5);
+  db.createSession(token, newUid, Date.now() + auth.SESSION_DAYS * 864e5);
   log(`👤 Inscription : ${login} (${role}, assistant #${asst.lastInsertRowid} créé).`);
-  res.json({ ok: true, token, user: auth.publicUser(db.getUserById(Number(r.lastInsertRowid))) });
+  if (!process.env.VERCEL && !process.env.SKIP_BOT) startBot(newUid); // son propre bot WhatsApp
+  res.json({ ok: true, token, user: auth.publicUser(db.getUserById(newUid)) });
 });
 app.post('/api/auth/login', (req, res) => {
   const login = auth.normalizeLogin(req.body.identifier || req.body.login);
@@ -396,7 +445,7 @@ app.post('/api/auth/logout', auth.requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 app.get('/api/auth/me', auth.requireAuth, (req, res) => {
-  res.json({ ok: true, user: auth.publicUser(db.getUserById(req.user.id)), assistants: db.countAssistants(req.user.id), active: publicAssistant(db.getActiveAssistant()) });
+  res.json({ ok: true, user: auth.publicUser(db.getUserById(req.user.id)), assistants: db.countAssistants(req.user.id), active: publicAssistant(db.getActiveAssistantForUser(req.user.id)), whatsapp: userConnected(req.user.id) ? 'connecte' : 'deconnecte' });
 });
 // Mot de passe oublié : code à 6 chiffres envoyé sur le numéro WhatsApp enregistré
 app.post('/api/auth/forgot', async (req, res) => {
@@ -407,12 +456,13 @@ app.post('/api/auth/forgot', async (req, res) => {
     const code = String(Math.floor(100000 + Math.random() * 900000));
     db.createResetCode(u.id, code, Date.now() + 15 * 60e3);
     const target = `${auth.normalizePhone(u.phone)}@s.whatsapp.net`;
-    if (sock) {
+    const fromSock = userSock(u.id) || firstSock(); // son bot de préférence, sinon un bot connecté
+    if (fromSock) {
       try {
-        await sock.sendMessage(target, { text: `🔐 Votre code de réinitialisation : *${code}*\nValable 15 minutes. Si ce n'est pas vous, ignorez ce message.` });
+        await fromSock.sendMessage(target, { text: `🔐 Votre code de réinitialisation : *${code}*\nValable 15 minutes. Si ce n'est pas vous, ignorez ce message.` });
         log(`📲 Code reset envoyé à ${target} pour ${login}.`);
       } catch (e) { log(`❌ Echec envoi code reset à ${target} : ${e.message}`); }
-    } else log('⚠️ Reset demandé mais WhatsApp non connecté, code non envoyé.');
+    } else log('⚠️ Reset demandé mais aucun WhatsApp connecté, code non envoyé.');
     return res.json({ ok: true, hint: '****' + String(u.phone).slice(-2) });
   }
   res.json({ ok: true, hint: '' });
@@ -432,7 +482,7 @@ app.post('/api/auth/reset', (req, res) => {
 
 // ---------- ASSISTANTS : liés au user connecté, un user = plusieurs assistants ----------
 app.get('/api/assistants', auth.requireAuth, (req, res) => {
-  res.json({ ok: true, assistants: db.listAssistants(req.user.id).map(publicAssistant), active: publicAssistant(db.getActiveAssistant()) });
+  res.json({ ok: true, assistants: db.listAssistants(req.user.id).map(publicAssistant), active: publicAssistant(db.getActiveAssistantForUser(req.user.id)) });
 });
 app.post('/api/assistants', auth.requireAuth, (req, res) => {
   if (db.countAssistants(req.user.id) >= 10) return res.status(400).json({ error: 'Maximum 10 assistants.' });
@@ -446,7 +496,7 @@ app.post('/api/assistants', auth.requireAuth, (req, res) => {
     use_conversations: req.body.use_conversations !== false,
     history_limit: Math.min(100, Math.max(2, Number(req.body.history_limit) || 20)),
     api_key: apiKey,
-    is_active: !db.getActiveAssistant()
+    is_active: !db.getActiveAssistantForUser(req.user.id)
   });
   log(`🤖 Assistant "${name}" créé pour ${req.user.login} (#${r.lastInsertRowid})${apiKey ? ' avec sa propre clé.' : '.'}`);
   res.json({ ok: true, assistant: publicAssistant(db.getAssistant(Number(r.lastInsertRowid))) });
@@ -482,19 +532,20 @@ app.put('/api/assistants/:id', auth.requireAuth, (req, res) => {
 });
 app.delete('/api/assistants/:id', auth.requireAuth, (req, res) => {
   const a = ownAssistant(req, res); if (!a) return;
-  const wasActive = !!db.getActiveAssistant() && db.getActiveAssistant().id === a.id;
+  const cur = db.getActiveAssistantForUser(req.user.id);
+  const wasActive = !!cur && cur.id === a.id;
   db.deleteAssistant(a.id);
-  log(`🗑️ Assistant "${a.name}" supprimé${wasActive ? ' (était actif, retour config globale)' : ''}.`);
+  log(`🗑️ Assistant "${a.name}" supprimé${wasActive ? ' (était actif)' : ''}.`);
   res.json({ ok: true });
 });
 app.post('/api/assistants/:id/activate', auth.requireAuth, (req, res) => {
   const a = ownAssistant(req, res); if (!a) return;
-  db.setActiveAssistant(a.id);
-  io.emit('assistant', { id: a.id, name: a.name });
+  db.setActiveAssistant(req.user.id, a.id);
+  io.to(room(req.user.id)).emit('assistant', { id: a.id, name: a.name });
   log(`▶️ Assistant actif : "${a.name}" (${a.model}) de ${req.user.login}.`);
   res.json({ ok: true });
 });
-app.get('/api/assistant/active', (req, res) => res.json({ ok: true, active: publicAssistant(db.getActiveAssistant()) }));
+app.get('/api/assistant/active', auth.requireAuth, (req, res) => res.json({ ok: true, active: publicAssistant(db.getActiveAssistantForUser(req.user.id)), whatsapp: userConnected(req.user.id) ? 'connecte' : 'deconnecte' }));
 
 // ---------- API ----------
 // Config SANS la cle en clair (securite : l'interface ne voit que "configuree oui/non + ***4 derniers")
@@ -540,18 +591,20 @@ app.delete('/api/key', (req, res) => {
   log('🗑️ Cle API supprimee de SQLite.');
   res.json({ ok: true });
 });
-app.post('/api/logout', async (req, res) => {
-  try { await sock?.logout(); } catch {}
-  try { fs.rmSync('./auth_info', { recursive: true, force: true }); } catch {}
-  io.emit('status', 'deconnecte-logout');
-  log('🚪 Session supprimee. Redemarrage...');
-  startBot();
+app.post('/api/logout', auth.requireAuth, async (req, res) => {
+  const uid = req.user.id;
+  try { await userSock(uid)?.logout(); } catch {}
+  socks.delete(uid); waConnected.delete(uid);
+  try { fs.rmSync(authDirFor(uid), { recursive: true, force: true }); } catch {}
+  io.to(room(uid)).emit('status', 'deconnecte-logout');
+  log(`🚪 [compte #${uid}] Session WhatsApp supprimee. Redemarrage...`);
+  if (!process.env.VERCEL && !process.env.SKIP_BOT) startBot(uid);
   res.json({ ok: true });
 });
 app.get('/api/logs', (req, res) => res.json(logs));
 // Test reel : mini-conversation avec le VRAI prompt systeme (ne pollue pas l'historique)
-app.get('/api/test-mistral', async (req, res) => {
-  const A = resolveAssistant();
+app.get('/api/test-mistral', auth.requireAuth, async (req, res) => {
+  const A = resolveAssistant(req.user.id);
   if (!A.key) return res.json({ ok: false, error: 'Cle manquante (ni assistant ni globale)' });
   const probe = 'Qui es-tu ? Presente-toi en une phrase courte en respectant tes instructions.';
   if (A.useConversations) {
@@ -570,21 +623,24 @@ app.get('/api/test-mistral', async (req, res) => {
   db.clearHistory(-1, '__test__');
   res.json({ ok: !!reply, mode: 'chat', model: A.model, keySource: A.keySource, instructionsSource: A.instructionsSource, assistant: A.name, reply });
 });
-// Historique SQLite par contact, scope par assistant actif (suivi local, meme si Mistral cloud est vide)
+// Historique SQLite par contact, scope par assistant actif DU COMPTE (suivi local, meme si Mistral cloud est vide)
 function reqAid(req) {
   const q = Number(req.query.assistant ?? req.body?.assistant);
-  if (q) return q;
-  return resolveAssistant().id;
+  if (q && req.user) {
+    const a = db.getAssistant(q);
+    if (a && a.user_id === req.user.id) return q; // assistant explicite, vérifié
+  }
+  return req.user ? resolveAssistant(req.user.id).id : resolveAssistant().id;
 }
-app.get('/api/history', (req, res) => {
+app.get('/api/history', auth.requireAuth, (req, res) => {
   const jid = req.query.jid;
   if (!jid) return res.status(400).json({ error: 'jid requis' });
   const aid = reqAid(req);
   const conv = db.getConv(aid, jid);
   res.json({ jid, assistant_id: aid, conversation_id: conv?.conversation_id || null, model: conv?.model || null, messages: db.getHistory(aid, jid, 100) });
 });
-app.get('/api/contacts', (req, res) => res.json(db.contacts(reqAid(req), 30)));
-app.post('/api/conversation/reset', (req, res) => {
+app.get('/api/contacts', auth.requireAuth, (req, res) => res.json(db.contacts(reqAid(req), 30)));
+app.post('/api/conversation/reset', auth.requireAuth, (req, res) => {
   const { jid, clearMessages } = req.body;
   if (!jid) return res.status(400).json({ error: 'jid requis' });
   const aid = reqAid(req);
@@ -593,17 +649,31 @@ app.post('/api/conversation/reset', (req, res) => {
   res.json({ ok: true });
 });
 
-io.on('connection', (s) => { s.emit('log-history', logs); });
+// Socket.io : chaque page rejoint la room de SON compte (QR / statut / messages ciblés)
+io.on('connection', (s) => {
+  s.emit('log-history', logs);
+  s.on('register', (token) => {
+    try {
+      const sess = token && db.getSession(String(token));
+      if (sess && sess.expires_at > Date.now()) {
+        s.join(room(sess.user_id));
+        // Renvoie l'état actuel du compte dès l'inscription
+        s.emit('status', userConnected(sess.user_id) ? 'connecte' : 'connexion...');
+      }
+    } catch {}
+  });
+});
 
-app.get('/api/status', (req, res) => {
-  const connected = sock && sock.ws && sock.ws.readyState === 1;
+app.get('/api/status', auth.requireAuth, (req, res) => {
+  const s = userSock(req.user.id);
+  const connected = !!(s && s.ws && s.ws.readyState === 1);
   res.json({ ok: true, connected });
 });
 
 const PORT = process.env.PORT || 3000;
 // Sur Vercel (serverless) : pas de listen(), pas de bot WhatsApp persistant — on exporte app.
 if (!process.env.VERCEL) {
-  server.listen(PORT, () => { console.log(`🌐 Interface : http://localhost:${PORT}`); if (!process.env.SKIP_BOT) startBot(); });
+  server.listen(PORT, () => { console.log(`🌐 Interface : http://localhost:${PORT}`); if (!process.env.SKIP_BOT) startAllBots(); });
 } else {
   console.log('ℹ️ Mode Vercel : API seule (bot WhatsApp désactivé, utilisez Railway/Render pour le bot).');
 }
