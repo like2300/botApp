@@ -514,24 +514,29 @@ app.post('/api/auth/reset', (req, res) => {
 //   GET /api/otp/send?token=CLE&to=243...&code=482913[&message=...]
 // ou POST /api/send-otp (Bearer session) { to, code, message? }
 async function sendOtp(uid, to, code, message) {
-  to = auth.normalizePhone(to || '');
   code = String(code || '').trim();
-  if (to.length < 9) return { status: 422, body: { ok: false, error: 'Numero destinataire invalide (9 chiffres min, ex. 243...).' } };
   if (!/^[0-9A-Za-z-]{4,12}$/.test(code)) return { status: 422, body: { ok: false, error: 'Code invalide (4 a 12 caracteres).' } };
+  return sendWhatsApp(uid, to, String(message || `🔐 Votre code de vérification : *${code}*`));
+}
+// Message simple (sans code) : POST /api/send { to, message } ou GET /api/send?token=CLE&to=..&message=..
+async function sendWhatsApp(uid, to, text) {
+  to = auth.normalizePhone(to || '');
+  text = String(text || '').trim().slice(0, 2000);
+  if (to.length < 9) return { status: 422, body: { ok: false, error: 'Numero destinataire invalide (9 chiffres min, ex. 243...).' } };
+  if (!text) return { status: 422, body: { ok: false, error: 'Message vide.' } };
   const sock = userSock(uid);
   if (!sock || !userConnected(uid)) return { status: 409, body: { ok: false, error: 'WhatsApp non connecte pour ce compte (scannez le QR).' } };
   const C = userCfg(uid);
   const r = rl(uid);
   r.sent = r.sent.filter(t => Date.now() - t < 60000);
   if (r.sent.length >= C.maxPerMinute) return { status: 429, body: { ok: false, error: `Quota ${C.maxPerMinute}/min atteint, reessayez dans une minute.` } };
-  const text = String(message || `🔐 Votre code de vérification : *${code}*`).slice(0, 1000);
   try {
     const sent = await sock.sendMessage(to + '@s.whatsapp.net', { text });
     r.sent.push(Date.now());
-    log(`📲 [compte #${uid}] OTP envoye au ${to}.`);
+    log(`📲 [compte #${uid}] Message envoye au ${to}.`);
     return { status: 200, body: { ok: true, to, id: sent?.key?.id || null } };
   } catch (e) {
-    log(`❌ [compte #${uid}] Echec OTP vers ${to} : ${e.message}`);
+    log(`❌ [compte #${uid}] Echec envoi vers ${to} : ${e.message}`);
     return { status: 502, body: { ok: false, error: 'Echec envoi WhatsApp : ' + e.message } };
   }
 }
@@ -539,13 +544,30 @@ app.post('/api/send-otp', auth.requireAuth, async (req, res) => {
   const r = await sendOtp(req.user.id, req.body.to || req.body.phone, req.body.code, req.body.message);
   res.status(r.status).json(r.body);
 });
+app.post('/api/send', auth.requireAuth, async (req, res) => {
+  const r = await sendWhatsApp(req.user.id, req.body.to || req.body.phone, req.body.message);
+  res.status(r.status).json(r.body);
+});
 // URL par compte : cle API (dashboard) en parametre — pour vos apps externes (GET simple)
-app.get('/api/otp/send', async (req, res) => {
+//   OTP :     GET /api/otp/send?token=CLE&to=243...&code=482913[&message=...]
+//   Message : GET /api/send?token=CLE&to=243...&message=Bonjour
+function apiTokenAuth(req) {
   const key = req.query.token || req.query.key || req.headers['x-api-token'];
   const t = key && db.getApiToken(String(key));
-  if (!t) return res.status(401).json({ ok: false, error: 'Cle API invalide (voir dashboard > API OTP).' });
+  if (!t) return null;
   db.touchApiToken(t.id);
+  return t;
+}
+app.get('/api/otp/send', async (req, res) => {
+  const t = apiTokenAuth(req);
+  if (!t) return res.status(401).json({ ok: false, error: 'Cle API invalide (voir dashboard > API OTP).' });
   const r = await sendOtp(t.user_id, req.query.to || req.query.phone, req.query.code, req.query.message);
+  res.status(r.status).json(r.body);
+});
+app.get('/api/send', async (req, res) => {
+  const t = apiTokenAuth(req);
+  if (!t) return res.status(401).json({ ok: false, error: 'Cle API invalide (voir dashboard > API OTP).' });
+  const r = await sendWhatsApp(t.user_id, req.query.to || req.query.phone, req.query.message);
   res.status(r.status).json(r.body);
 });
 // Gestion des cles API du compte (session requise) — le token complet n'est rendu qu'a la creation

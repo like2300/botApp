@@ -99,6 +99,7 @@ GET https://VOTRE-DOMAINE/api/otp/send?token=CLE_DU_COMPTE&to=243810000000&code=
 ```
 
 - Message envoyé : `🔐 Votre code de vérification : *482913*` (`&message=...` pour un texte perso, 1000 car. max)
+- **Message simple** (sans code) : `GET /api/send?token=CLE&to=243...&message=Bonjour` (ou `POST /api/send` Bearer session `{ "to", "message" }`)
 - Alternative : `POST /api/send-otp` (Bearer session) `{ "to", "code", "message?" }`
 - Erreurs : `401` clé invalide, `422` numéro/code invalide, `409` WhatsApp du compte déconnecté (rescannez le QR), `429` quota/min, `502` échec d'envoi
 - Les clés se gèrent sur le dashboard (créer / supprimer, max 10) ; la clé complète n'est affichée qu'à la création
