@@ -329,11 +329,14 @@ async function askMistral(uid, jid, userMessage) {
 async function processQueue() {
   if (processing) return;
   processing = true;
+  try {
   while (messageQueue.length > 0) {
     const { uid, from, text } = messageQueue.shift();
     const C = userCfg(uid); // réglages DU COMPTE (délais, quotas...)
     const sock = userSock(uid);
     if (!sock) { log(`⚠️ Compte #${uid} : WhatsApp non connecté, message de ${from} ignoré (scannez le QR).`); continue; }
+    const pausedAsst = resolveAssistant(uid);
+    if (pausedAsst.id !== 0 && pausedAsst.paused) { log(`⏸️ [${pausedAsst.name}] en pause : message de ${from} ignoré (reprenez-le pour répondre).`); continue; }
     const r = rl(uid);
     const now = Date.now();
     r.sent = r.sent.filter(t => now - t < 60000);
@@ -365,7 +368,9 @@ async function processQueue() {
     }
     await sleep(1500);
   }
-  processing = false;
+  } finally {
+    processing = false; // jamais de file coincee, meme en cas d'exception
+  }
 }
 
 async function startBot(uid) {
