@@ -510,30 +510,61 @@ app.post('/api/auth/reset', (req, res) => {
 });
 
 // ---------- API OTP : vos apps externes envoient un code via le WhatsApp DU COMPTE ----------
-// Auth : Bearer <token session> (POST /api/auth/login). Chaque compte envoie depuis SON numero.
-// POST /api/send-otp { to: "243...", code: "482913", message?: "texte (défaut ci-dessous)" }
-app.post('/api/send-otp', auth.requireAuth, async (req, res) => {
-  const uid = req.user.id;
-  const to = auth.normalizePhone(req.body.to || req.body.phone || '');
-  const code = String(req.body.code || '').trim();
-  if (to.length < 9) return res.status(422).json({ ok: false, error: 'Numero destinataire invalide (9 chiffres min, ex. 243...).' });
-  if (!/^[0-9A-Za-z-]{4,12}$/.test(code)) return res.status(422).json({ ok: false, error: 'Code invalide (4 a 12 caracteres).' });
+// Chaque compte a SA propre URL d'envoi (clé API visible sur le dashboard) :
+//   GET /api/otp/send?token=CLE&to=243...&code=482913[&message=...]
+// ou POST /api/send-otp (Bearer session) { to, code, message? }
+async function sendOtp(uid, to, code, message) {
+  to = auth.normalizePhone(to || '');
+  code = String(code || '').trim();
+  if (to.length < 9) return { status: 422, body: { ok: false, error: 'Numero destinataire invalide (9 chiffres min, ex. 243...).' } };
+  if (!/^[0-9A-Za-z-]{4,12}$/.test(code)) return { status: 422, body: { ok: false, error: 'Code invalide (4 a 12 caracteres).' } };
   const sock = userSock(uid);
-  if (!sock || !userConnected(uid)) return res.status(409).json({ ok: false, error: 'WhatsApp non connecte pour ce compte (scannez le QR).' });
+  if (!sock || !userConnected(uid)) return { status: 409, body: { ok: false, error: 'WhatsApp non connecte pour ce compte (scannez le QR).' } };
   const C = userCfg(uid);
   const r = rl(uid);
   r.sent = r.sent.filter(t => Date.now() - t < 60000);
-  if (r.sent.length >= C.maxPerMinute) return res.status(429).json({ ok: false, error: `Quota ${C.maxPerMinute}/min atteint, reessayez dans une minute.` });
-  const text = String(req.body.message || `🔐 Votre code de vérification : *${code}*`).slice(0, 1000);
+  if (r.sent.length >= C.maxPerMinute) return { status: 429, body: { ok: false, error: `Quota ${C.maxPerMinute}/min atteint, reessayez dans une minute.` } };
+  const text = String(message || `🔐 Votre code de vérification : *${code}*`).slice(0, 1000);
   try {
     const sent = await sock.sendMessage(to + '@s.whatsapp.net', { text });
     r.sent.push(Date.now());
     log(`📲 [compte #${uid}] OTP envoye au ${to}.`);
-    res.json({ ok: true, to, id: sent?.key?.id || null });
+    return { status: 200, body: { ok: true, to, id: sent?.key?.id || null } };
   } catch (e) {
     log(`❌ [compte #${uid}] Echec OTP vers ${to} : ${e.message}`);
-    res.status(502).json({ ok: false, error: 'Echec envoi WhatsApp : ' + e.message });
+    return { status: 502, body: { ok: false, error: 'Echec envoi WhatsApp : ' + e.message } };
   }
+}
+app.post('/api/send-otp', auth.requireAuth, async (req, res) => {
+  const r = await sendOtp(req.user.id, req.body.to || req.body.phone, req.body.code, req.body.message);
+  res.status(r.status).json(r.body);
+});
+// URL par compte : cle API (dashboard) en parametre — pour vos apps externes (GET simple)
+app.get('/api/otp/send', async (req, res) => {
+  const key = req.query.token || req.query.key || req.headers['x-api-token'];
+  const t = key && db.getApiToken(String(key));
+  if (!t) return res.status(401).json({ ok: false, error: 'Cle API invalide (voir dashboard > API OTP).' });
+  db.touchApiToken(t.id);
+  const r = await sendOtp(t.user_id, req.query.to || req.query.phone, req.query.code, req.query.message);
+  res.status(r.status).json(r.body);
+});
+// Gestion des cles API du compte (session requise) — le token complet n'est rendu qu'a la creation
+app.get('/api/api-tokens', auth.requireAuth, (req, res) => {
+  res.json({ ok: true, tokens: db.listApiTokens(req.user.id) });
+});
+app.post('/api/api-tokens', auth.requireAuth, (req, res) => {
+  if (db.listApiTokens(req.user.id).length >= 10) return res.status(400).json({ ok: false, error: 'Maximum 10 cles API.' });
+  const name = String(req.body.name || 'app').trim().slice(0, 40) || 'app';
+  const token = 'otp_' + auth.newToken();
+  const r = db.createApiToken(req.user.id, name, token);
+  log(`🔑 [compte #${req.user.id}] Cle API "${name}" creee.`);
+  res.json({ ok: true, token: { id: Number(r.lastInsertRowid), name, token } });
+});
+app.delete('/api/api-tokens/:id', auth.requireAuth, (req, res) => {
+  const n = db.deleteApiToken(req.user.id, Number(req.params.id));
+  if (!n) return res.status(404).json({ ok: false, error: 'Cle introuvable.' });
+  log(`🗑️ [compte #${req.user.id}] Cle API #${req.params.id} supprimee.`);
+  res.json({ ok: true });
 });
 
 // ---------- ASSISTANTS : liés au user connecté, un user = plusieurs assistants ----------

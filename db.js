@@ -62,6 +62,14 @@ CREATE TABLE IF NOT EXISTS reset_codes (
   used INTEGER NOT NULL DEFAULT 0,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL DEFAULT 'app',
+  token TEXT UNIQUE NOT NULL,
+  last_used INTEGER NOT NULL DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 `);
 
 // --- Migration v2 : conversations/messages scopes par assistant ---
@@ -167,6 +175,12 @@ const stmts = {
   getReset: db.prepare('SELECT * FROM reset_codes WHERE user_id = ? AND code = ? AND used = 0 ORDER BY id DESC LIMIT 1'),
   markReset: db.prepare('UPDATE reset_codes SET used = 1 WHERE id = ?'),
   invalidateResets: db.prepare('UPDATE reset_codes SET used = 1 WHERE user_id = ? AND used = 0'),
+  // cles API (URL OTP par compte)
+  createApiToken: db.prepare('INSERT INTO api_tokens(user_id, name, token) VALUES(?, ?, ?)'),
+  listApiTokens: db.prepare('SELECT id, user_id, name, token, last_used, created_at FROM api_tokens WHERE user_id = ? ORDER BY id'),
+  getApiToken: db.prepare('SELECT t.*, u.login FROM api_tokens t JOIN users u ON u.id = t.user_id WHERE t.token = ?'),
+  touchApiToken: db.prepare('UPDATE api_tokens SET last_used = ? WHERE id = ?'),
+  delApiToken: db.prepare('DELETE FROM api_tokens WHERE id = ? AND user_id = ?'),
 };
 
 module.exports = {
@@ -205,6 +219,12 @@ module.exports = {
   getSession: (token) => stmts.getSess.get(token) || null,
   deleteSession: (token) => stmts.delSess.run(token),
   createResetCode: (uid, code, exp) => { stmts.invalidateResets.run(uid); return stmts.createReset.run(uid, code, exp); },
+  // cles API (URL OTP par compte) — le token complet n'est visible qu'a la creation
+  createApiToken: (uid, name, token) => stmts.createApiToken.run(uid, name, token),
+  listApiTokens: (uid) => stmts.listApiTokens.all(uid).map(t => ({ ...t, token: t.token.slice(0, 6) + '...' + t.token.slice(-4) })),
+  getApiToken: (token) => stmts.getApiToken.get(token) || null,
+  touchApiToken: (id) => stmts.touchApiToken.run(Date.now(), id),
+  deleteApiToken: (uid, id) => stmts.delApiToken.run(id, uid).changes,
   getValidReset: (uid, code) => stmts.getReset.get(uid, code) || null,
   markResetUsed: (id) => stmts.markReset.run(id),
 };

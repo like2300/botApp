@@ -503,6 +503,67 @@
                 </div>
             </div>
 
+            <!-- Card: API OTP (URL d'envoi par compte, pour vos apps externes) -->
+            <div class="grid grid-cols-1 gap-6 mt-6">
+                <div
+                    class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 hover:shadow-md transition-shadow duration-300"
+                >
+                    <div
+                        class="flex items-center gap-2 pb-3 border-b border-slate-100 mb-4"
+                    >
+                        <i data-lucide="key-round" class="w-5 h-5 text-slate-500"></i>
+                        <h2 class="text-base font-semibold text-slate-900">
+                            API OTP — URL d'envoi de ce compte
+                        </h2>
+                    </div>
+                    <p class="text-xs text-slate-500 mb-3">
+                        Vos apps appellent cette URL (numéro destinataire + code
+                        dans l'URL) : le message part du WhatsApp
+                        <b> de ce compte</b>. Format :
+                        <code
+                            class="bg-slate-100 px-1.5 py-0.5 rounded text-[11px]"
+                            >/api/otp/send?token=CLE&amp;to=NUMERO&amp;code=CODE</code
+                        >
+                    </p>
+                    <div class="flex flex-col sm:flex-row gap-2 mb-3">
+                        <input
+                            id="otpName"
+                            placeholder="Nom de la clé (ex : mon-site)"
+                            class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus-ring"
+                        />
+                        <button
+                            onclick="createOtpKey()"
+                            class="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 transition-all"
+                        >
+                            <i data-lucide="plus" class="w-4 h-4"></i>
+                            Créer une clé
+                        </button>
+                    </div>
+                    <div id="otpNew" class="hidden mb-3"></div>
+                    <div id="otpList" class="space-y-2"></div>
+                    <div class="flex flex-col sm:flex-row gap-2 mt-3">
+                        <input
+                            id="otpTo"
+                            placeholder="Numéro test (ex : 243...)"
+                            class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus-ring"
+                        />
+                        <input
+                            id="otpCode"
+                            placeholder="Code test"
+                            class="w-32 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus-ring"
+                        />
+                        <button
+                            onclick="testOtp()"
+                            class="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-all"
+                        >
+                            <i data-lucide="send" class="w-4 h-4"></i>
+                            Tester l'URL
+                        </button>
+                    </div>
+                    <p id="otpResult" class="text-xs mt-2 hidden"></p>
+                </div>
+            </div>
+
             <!-- Secondary Grid -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <!-- Card 3: Discussions -->
@@ -760,6 +821,89 @@
                 loadConfig();
             }
 
+            // ---------- API OTP : clés + URL d'envoi du compte ----------
+            const otpUrl = (tok, to, code) =>
+                `${location.origin}/api/otp/send?token=${encodeURIComponent(tok)}&to=${encodeURIComponent(to || "NUMERO")}&code=${encodeURIComponent(code || "CODE")}`;
+
+            async function loadOtpKeys() {
+                const d = await fetch("/api/api-tokens", { headers: authH() })
+                    .then((r) => r.json())
+                    .catch(() => ({}));
+                const box = $("otpList");
+                const keys = (d && d.tokens) || [];
+                box.innerHTML = keys.length
+                    ? ""
+                    : '<p class="text-xs text-slate-400">Aucune clé — créez-en une ci-dessus.</p>';
+                keys.forEach((k) => {
+                    const div = document.createElement("div");
+                    div.className =
+                        "flex flex-col sm:flex-row sm:items-center gap-2 p-2.5 rounded-xl border border-slate-200 bg-slate-50";
+                    div.innerHTML =
+                        `<div class="flex-1 min-w-0"><div class="text-xs font-semibold text-slate-800">${k.name} <span class="text-slate-400 font-mono">${k.token}</span></div>` +
+                        `<div class="text-[11px] text-slate-500 font-mono break-all">${location.origin}/api/otp/send?token=••••&amp;to=NUMERO&amp;code=CODE</div></div>` +
+                        `<div class="flex gap-1.5"><button class="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-white border border-slate-200 hover:bg-slate-100" data-copy="${k.id}">Copier l'URL</button>` +
+                        `<button class="px-3 py-1.5 rounded-lg text-[11px] font-semibold text-rose-600 bg-white border border-rose-100 hover:bg-rose-50" data-del="${k.id}">Supprimer</button></div>`;
+                    div.querySelector("[data-del]").onclick = async () => {
+                        if (!confirm("Supprimer cette clé ?")) return;
+                        await fetch("/api/api-tokens/" + k.id, {
+                            method: "DELETE",
+                            headers: authH(),
+                        });
+                        loadOtpKeys();
+                    };
+                    div.querySelector("[data-copy]").onclick = () => {
+                        // La clé complète n'est connue qu'à la création : on la redemande via le coffre ci-dessous
+                        alert(
+                            "Par sécurité, la clé complète n'est affichée qu'UNE fois, à sa création (bloc vert ci-dessous). Recréez une clé si besoin.",
+                        );
+                    };
+                    box.appendChild(div);
+                });
+                refreshIcons();
+            }
+
+            async function createOtpKey() {
+                const name = $("otpName").value || "app";
+                const r = await fetch("/api/api-tokens", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", ...authH() },
+                    body: JSON.stringify({ name }),
+                }).then((r) => r.json());
+                if (!r.ok) return alert("Erreur : " + (r.error || ""));
+                const full = otpUrl(r.token.token, "243800000000", "123456");
+                const box = $("otpNew");
+                box.className =
+                    "mb-3 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs break-all";
+                box.innerHTML =
+                    `${icon("check-circle", "w-4 h-4 text-emerald-600")} <b>Votre URL d'envoi (compte ${r.token.name}) — copiez-la maintenant :</b><br>` +
+                    `<code class="font-mono">${full}</code><br>` +
+                    `<button id="otpCopyNew" class="mt-2 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700">Copier</button>`;
+                $("otpCopyNew").onclick = () =>
+                    navigator.clipboard.writeText(full).catch(() => {});
+                $("otpName").value = "";
+                refreshIcons();
+                loadOtpKeys();
+            }
+
+            async function testOtp() {
+                const to = $("otpTo").value.trim();
+                const code = $("otpCode").value.trim() || "123456";
+                const out = $("otpResult");
+                out.className = "text-xs mt-2 block text-blue-700";
+                out.textContent = "Envoi en cours...";
+                const r = await fetch("/api/send-otp", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", ...authH() },
+                    body: JSON.stringify({ to, code }),
+                }).then((r) => r.json());
+                out.className =
+                    "text-xs mt-2 block " +
+                    (r.ok ? "text-emerald-700" : "text-rose-600");
+                out.textContent = r.ok
+                    ? `✅ Envoyé au ${r.to} depuis le WhatsApp de ce compte.`
+                    : `❌ ${r.error || "Échec"}`;
+            }
+
             async function testMistral() {
                 const tr = $("testResult");
                 tr.classList.remove("hidden");
@@ -1009,6 +1153,7 @@
             }
             loadStatus();
             registerSocket();
+            loadOtpKeys();
             socket.on("connect", () => {
                 registerSocket();
                 loadStatus();

@@ -91,24 +91,17 @@ Le modèle, le prompt système, les délais et les limites se règlent dans **l'
 
 ## 📲 API OTP (pour vos apps externes)
 
-Vos futures apps peuvent envoyer un code via le WhatsApp **du compte** (chaque compte envoie depuis son numéro) :
+Chaque compte a **sa propre URL d'envoi** (clé API créée sur le dashboard → carte *API OTP*) : vos apps appellent l'URL avec le numéro destinataire + le code, le message part du WhatsApp **de ce compte**.
 
-```bash
-# 1. Token de session du compte expéditeur
-TOKEN=$(curl -s -X POST https://VOTRE-DOMAINE/api/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"login":"moncompte","password":"monpass"}' | node -p "JSON.parse(require('fs').readFileSync(0)).token")
-
-# 2. Envoi du code
-curl -X POST https://VOTRE-DOMAINE/api/send-otp \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"to":"243810000000","code":"482913"}'
-# → {"ok":true,"to":"243810000000","id":"..."}
-# Message envoyé : 🔐 Votre code de vérification : *482913*
-# (champ optionnel "message" pour un texte personnalisé, 1000 car. max)
+```
+GET https://VOTRE-DOMAINE/api/otp/send?token=CLE_DU_COMPTE&to=243810000000&code=482913
+→ {"ok":true,"to":"243810000000","id":"..."}
 ```
 
-Erreurs : `401` non connecté, `422` numéro/code invalide, `409` WhatsApp du compte déconnecté (rescannez le QR), `429` quota/min atteint, `502` échec d'envoi.
+- Message envoyé : `🔐 Votre code de vérification : *482913*` (`&message=...` pour un texte perso, 1000 car. max)
+- Alternative : `POST /api/send-otp` (Bearer session) `{ "to", "code", "message?" }`
+- Erreurs : `401` clé invalide, `422` numéro/code invalide, `409` WhatsApp du compte déconnecté (rescannez le QR), `429` quota/min, `502` échec d'envoi
+- Les clés se gèrent sur le dashboard (créer / supprimer, max 10) ; la clé complète n'est affichée qu'à la création
 
 ## 💾 Persistance (important)
 
