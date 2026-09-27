@@ -509,6 +509,33 @@ app.post('/api/auth/reset', (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- API OTP : vos apps externes envoient un code via le WhatsApp DU COMPTE ----------
+// Auth : Bearer <token session> (POST /api/auth/login). Chaque compte envoie depuis SON numero.
+// POST /api/send-otp { to: "243...", code: "482913", message?: "texte (défaut ci-dessous)" }
+app.post('/api/send-otp', auth.requireAuth, async (req, res) => {
+  const uid = req.user.id;
+  const to = auth.normalizePhone(req.body.to || req.body.phone || '');
+  const code = String(req.body.code || '').trim();
+  if (to.length < 9) return res.status(422).json({ ok: false, error: 'Numero destinataire invalide (9 chiffres min, ex. 243...).' });
+  if (!/^[0-9A-Za-z-]{4,12}$/.test(code)) return res.status(422).json({ ok: false, error: 'Code invalide (4 a 12 caracteres).' });
+  const sock = userSock(uid);
+  if (!sock || !userConnected(uid)) return res.status(409).json({ ok: false, error: 'WhatsApp non connecte pour ce compte (scannez le QR).' });
+  const C = userCfg(uid);
+  const r = rl(uid);
+  r.sent = r.sent.filter(t => Date.now() - t < 60000);
+  if (r.sent.length >= C.maxPerMinute) return res.status(429).json({ ok: false, error: `Quota ${C.maxPerMinute}/min atteint, reessayez dans une minute.` });
+  const text = String(req.body.message || `🔐 Votre code de vérification : *${code}*`).slice(0, 1000);
+  try {
+    const sent = await sock.sendMessage(to + '@s.whatsapp.net', { text });
+    r.sent.push(Date.now());
+    log(`📲 [compte #${uid}] OTP envoye au ${to}.`);
+    res.json({ ok: true, to, id: sent?.key?.id || null });
+  } catch (e) {
+    log(`❌ [compte #${uid}] Echec OTP vers ${to} : ${e.message}`);
+    res.status(502).json({ ok: false, error: 'Echec envoi WhatsApp : ' + e.message });
+  }
+});
+
 // ---------- ASSISTANTS : liés au user connecté, un user = plusieurs assistants ----------
 app.get('/api/assistants', auth.requireAuth, (req, res) => {
   res.json({ ok: true, assistants: db.listAssistants(req.user.id).map(publicAssistant), active: publicAssistant(db.getActiveAssistantForUser(req.user.id)) });

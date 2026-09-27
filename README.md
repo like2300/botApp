@@ -89,6 +89,27 @@ Le modèle, le prompt système, les délais et les limites se règlent dans **l'
 | POST | `/api/conversation/reset` | réinitialise une conversation |
 | POST | `/api/logout` | déconnecte WhatsApp (supprime `auth_info`) |
 
+## 📲 API OTP (pour vos apps externes)
+
+Vos futures apps peuvent envoyer un code via le WhatsApp **du compte** (chaque compte envoie depuis son numéro) :
+
+```bash
+# 1. Token de session du compte expéditeur
+TOKEN=$(curl -s -X POST https://VOTRE-DOMAINE/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login":"moncompte","password":"monpass"}' | node -p "JSON.parse(require('fs').readFileSync(0)).token")
+
+# 2. Envoi du code
+curl -X POST https://VOTRE-DOMAINE/api/send-otp \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"to":"243810000000","code":"482913"}'
+# → {"ok":true,"to":"243810000000","id":"..."}
+# Message envoyé : 🔐 Votre code de vérification : *482913*
+# (champ optionnel "message" pour un texte personnalisé, 1000 car. max)
+```
+
+Erreurs : `401` non connecté, `422` numéro/code invalide, `409` WhatsApp du compte déconnecté (rescannez le QR), `429` quota/min atteint, `502` échec d'envoi.
+
 ## 💾 Persistance (important)
 
 - `auth_info/` = appairage WhatsApp : **sans lui, il faut rescanner le QR**. Ne le commitez jamais, sauvegardez-le.
